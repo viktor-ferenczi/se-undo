@@ -457,8 +457,8 @@ other tunables.
 | Enable Build context, Terminal context, Text context | on | Per context switch; a disabled context neither records nor takes the keys |
 | Max nodes: Build, Terminal | 200 | Node cap per persisted history |
 | Max nodes: Text | 100 | Per text box |
-| Grid store budget per world MB | 256 | Section 9 retention, per world folder |
-| Grid store budget total MB | 1024 | Section 9 retention, whole storage root |
+| Grid store budget per world MB | 512 | Section 9 retention, per world folder |
+| Grid store budget total MB | 2048 | Section 9 retention, whole storage root |
 | Budget raise step MB | 64 | Granularity when a budget is raised for an oversized entry |
 | Oversized grid backups | Ask | Ask, Always raise, Never store; section 9 |
 | Grid history binding | Ctrl-Shift-H | Opens the recovery dialog in the Build context |
