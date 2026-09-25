@@ -7,9 +7,9 @@ Covered: placing and removing blocks, painting and skins, pasting and deleting g
 terminal property changes, block and grid names, programmable block programs and single
 line text fields. The history is saved with the world and follows its backups.
 
-Both keys can be rebound in the plugin settings. Vanilla binds Ctrl-Z to relative
-dampeners and Ctrl-Y to toggling all reactors; while this plugin is enabled those two
-need another binding.
+Vanilla binds Ctrl-Z to relative dampeners and Ctrl-Y to toggling all reactors. While
+this plugin is enabled those move to Ctrl-Shift-Z and Ctrl-Shift-Y. All four bindings,
+the history limits and the storage locations are in the plugin settings.
 
 Design: [Docs/DESIGN.md](Docs/DESIGN.md). It records what the plugin hooks, how undo is
 replayed through the game's own requests so multiplayer stays in sync, and what is

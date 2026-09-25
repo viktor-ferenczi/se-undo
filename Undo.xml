@@ -22,8 +22,9 @@
         Ctrl-Z reverts the last operation in the current context and Ctrl-Y applies it again.
         Covered: placing and removing blocks, painting and skins, pasting and deleting grids,
         terminal property changes, block and grid names, programmable block programs and
-        single line text fields. Both keys can be rebound in the plugin settings, because
-        vanilla uses Ctrl-Z for relative dampeners and Ctrl-Y for toggling all reactors.
+        single line text fields. Vanilla uses Ctrl-Z for relative dampeners and Ctrl-Y for
+        toggling all reactors; those move to Ctrl-Shift-Z and Ctrl-Shift-Y. All bindings
+        and limits can be changed in the plugin settings.
 
         The history is saved with the world and follows its backups. Works offline, when
         hosting for friends, and as far as the server allows when connected to a server.
