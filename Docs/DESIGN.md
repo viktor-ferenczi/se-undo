@@ -141,7 +141,7 @@ Node
   label                    short text for HUD notifications: "placed 3 blocks"
   forward: Op[]            what the player did, replayed on redo
   reverse: Op[]            replayed on undo, in reverse order
-  bytes                    serialized size, for the memory budget
+  storeRefs                ids of grid store entries the ops need, section 9
 ```
 
 Undo: apply `current.reverse`, move `current` to its parent. Redo: pick a child (the
@@ -151,10 +151,10 @@ action becomes a child of `current`. With the tree option off, the other childre
 undo. With it on, they stay, and redo walks the last visited branch. A branch picker
 dialog is not part of the first version; the data model already supports it.
 
-Limits per persisted context: a node count (default 200) and a byte budget for
-snapshots (default 64 MB), both in the config. When either is exceeded the oldest
-nodes are dropped from the root side. A dropped node's descendants on other branches
-are dropped with it.
+Limit per persisted context: a node count (default 200), in the config. When it is
+exceeded the oldest nodes are dropped from the root side. A dropped node's descendants
+on other branches are dropped with it. Nodes hold only small data; grid group builders
+live in the grid store of section 9 and have their own byte budgets there.
 
 Replayed actions are not recorded: a re-entrancy flag on the recorder is set while the
 executor runs an op, and every record hook checks it.
@@ -260,11 +260,11 @@ positions, plus the handles of the current grids. Apply on the server: close the
 current grids and re-create the saved builders with `CreateFromObjectBuilderAndAdd`
 without remapping, so ids and cross references come back. Apply on a client: the paste
 request, with the losses above. It is used in one situation only: an op applied on a
-client completed with an unknown result (section 9). Before the executor sends such an
+client completed with an unknown result (section 10). Before the executor sends such an
 asynchronous op it takes the group snapshot, keeps it while the op is pending, drops
 it on success and attaches it to the node on timeout. Server side ops complete
-synchronously and never need it. Snapshots are gzip compressed in memory and count
-against the byte budget.
+synchronously and never need it. Snapshots are written to the grid store of section 9 like every other group builder
+and only referenced from the node.
 
 ## 8. Persistence
 
@@ -305,7 +305,7 @@ event. The document goes into the plugin's own storage folder, with one sub-fold
 server and per player character:
 
 ```
-<storage root>/Servers/<server>/<player>/<world>.xml.gz
+<storage root>/Servers/<server>/<player>/<world>/history.xml.gz
 
 storage root   default <UserDataPath>/Undo, configurable
 server         Sync.ServerId, plus the sanitized host name for readability when known
@@ -315,6 +315,10 @@ player         Sync.MyId (the Steam id) and the local identity id
 world          sanitized SessionName, plus WorldId when it isn't Guid.Empty
 ```
 
+Offline and hosted worlds keep `Undo.xml.gz` in the save folder as above; their grid
+store entries (section 9) live under `<storage root>/Worlds/<world key>/` where the
+world key is the save folder name plus `WorldId`, so backups don't multiply the store.
+
 It is written on `OnUnloading`, when the `OnServerSaving(true)` RPC arrives, and at
 most once per the configured interval after a change (default one minute). This history
 is not tied to the server's own backups; if the server restores an older world the
@@ -323,7 +327,76 @@ they are older than the configured retention (default 90 days) so the folder doe
 grow with every server ever visited. The config has a switch to turn client side
 persistence off.
 
-## 9. Applying an action
+## 9. Grid store and recovery dialog
+
+Every grid group builder the plugin has to capture anyway (delete, paste, split pieces
+on a client, the pre-op snapshot of section 7) goes into one store instead of into the
+history nodes. Nodes reference an entry by id. Keeping those entries longer than the
+history needs them, under a retention policy, gives a grid recovery feature with no
+extra backup work: the player opens a dialog, picks a backed up grid group, and gets it
+on the clipboard to paste wherever they want.
+
+Layout, under the storage root of section 8:
+
+```
+<storage root>/
+  Worlds/<world key>/grids/            offline and hosted worlds
+  Servers/<server>/<player>/<world>/grids/   client sessions
+    index.xml                          one row per entry, everything the dialog shows
+    <id>.sbc.gz                        the builders, blueprint format
+```
+
+An entry file is a `MyObjectBuilder_Definitions` with one `ShipBlueprints` item whose
+`CubeGrids` hold the group, written with `MyObjectBuilderSerializerKeen.SerializeXML`
+gzip compressed. That is the game's own blueprint file format, so an entry can also be
+copied into the blueprints folder by hand, and the dialog can hand it to the clipboard
+through the game's own `MyGuiBlueprintScreen_Reworked.CopyBlueprintPrefabToClipboard(prefab, MyClipboardComponent.Static.Clipboard)`,
+which also sets the owner and the drag point. `id` is the SHA-256 of the uncompressed
+XML, so an unchanged group deleted twice is stored once and indexed twice.
+
+Index row: id, UTC timestamp, reason (deleted, pasted, split, snapshot), main grid name
+(the largest grid), grid count, total block count, PCU (sum of definition PCU), grid
+size class (large, small, mixed), static or dynamic, main grid entity id, compressed
+bytes. Everything is computed from the builders at write time, so the dialog never
+opens an entry file until the player picks one. The index is rewritten on every change
+and loaded once per session.
+
+Retention. Two byte budgets, per world folder and for the whole storage root, both in
+the config. When a write pushes a world folder over its budget, or the total over its
+budget, cleanup removes entries oldest first in two passes: the first pass skips an
+entry when it is the newest entry of its grid group, the second pass runs only if the
+first could not get under budget and removes oldest first without exception. Grid
+group identity for this rule is the main grid entity id (plus name, so a renamed grid
+keeps its line). A history node whose entry was removed by cleanup is refused on undo
+with "backup was cleaned up", the node itself stays. The total budget cleanup considers
+entries across all world folders, so an old world's entries give way to the current
+one. The client history retention days of section 8 delete whole world folders as
+before.
+
+Dialog. Opened by a configurable binding (default Ctrl-Shift-H, to be checked against
+the vanilla default controls at implementation time) in the Build context, and by a
+button in the plugin's config dialog. It is a `MyGuiScreenBase` with a
+`MyGuiControlTable` listing the entries of the current world and player only, one row
+per index entry. Columns in this order: Time (local), Name, Blocks, Grids, PCU, Size,
+Reason. Bytes and the static flag are shown in the row tooltip rather than as columns
+so the table fits at 1280x720.
+
+Sorting keeps a history of clicked columns. The sort key list starts as
+`[Time descending]`. Clicking a column moves it to the front of the list; clicking the
+column that is already first flips its direction. Rows are ordered by comparing the
+keys in list order, so after Time descending then Name, the table is by name with the
+newest first inside each name. The plugin sorts the rows itself and re-adds them (the
+table's own `SortByColumn` knows one column), using `ColumnClicked` for the clicks.
+The key list is saved in the config so the dialog reopens the way it was left.
+
+Double click (`ItemDoubleClicked`) or the Paste button loads the entry's builders onto
+the clipboard with the method above and closes the dialog; the player then places it
+with the normal paste flow, so the server's paste permissions apply unchanged. A
+Delete button removes the selected entry (and its file when no other index row shares
+the id), with a confirmation. Entries referenced by an undo node can be deleted too;
+the node is then refused as described above.
+
+## 10. Applying an action
 
 `Executor.Undo()` / `Redo()` run on the main thread from the key handlers:
 
@@ -344,7 +417,7 @@ Failures reported by the server (`BuildBlocksFailedNotify`, `OnColorGridBlockFai
 `ValidationFailed`) are already shown by the game. The plugin also marks the node
 "unknown result" when it sees them while a pending op is open.
 
-## 10. Configuration
+## 11. Configuration
 
 Stored by the template's `ConfigStorage` in `<UserDataPath>/Storage/Undo.cfg`, edited
 through the generated dialog.
@@ -360,7 +433,10 @@ other tunables.
 | Enable Build context, Terminal context, Text context | on | Per context switch; a disabled context neither records nor takes the keys |
 | Max nodes: Build, Terminal | 200 | Node cap per persisted history |
 | Max nodes: Text | 100 | Per text box |
-| Snapshot budget MB: Build, Terminal | 64 | Byte cap for all snapshots in a history |
+| Grid store budget per world MB | 256 | Section 9 retention, per world folder |
+| Grid store budget total MB | 1024 | Section 9 retention, whole storage root |
+| Grid history binding | Ctrl-Shift-H | Opens the recovery dialog in the Build context |
+| Grid history sort keys | Time descending | Saved column sort history of the dialog |
 | Undo tree | off | Keep abandoned branches |
 | Group link type for snapshots | Logical | `GridLinkTypeEnum` used to collect a grid group; Physical also follows connectors |
 | Record terminal changes outside the terminal | off | Toolbar and script driven property changes |
@@ -380,7 +456,7 @@ other tunables.
 | Debug status file | off | Writes `<Client storage root>/status.json` after every history change, for the tests |
 | Log level | Info | Plugin log verbosity in the game log |
 
-## 11. Code structure
+## 12. Code structure
 
 ```
 ClientPlugin/
@@ -398,6 +474,8 @@ ClientPlugin/
   Text/                     TextHistory and the textbox patch
   Storage/                  UndoDocument, XML serialization, save and load hooks,
                             client side world file
+  GridStore/                entry files, index, hashing, retention cleanup
+  Gui/                      grid history screen, table, sort key list
   Settings/                 template config dialog (unchanged)
 ```
 
@@ -406,7 +484,7 @@ calls game mutation methods and the executor never records. Anything that talks 
 the game is behind the Ops and the Record patches so the History and Storage code is
 testable without the game.
 
-## 12. Test suite
+## 13. Test suite
 
 Pytest under `tests/` in this repo, driven through the Remote plugin's REST API and
 its Python client (`se1/plugins/remote/skills/se-remote/se_remote.py`). The rig is an
@@ -432,6 +510,8 @@ Coverage, one test per row, each followed by redo where it applies:
 | Text box | type into a search box via `input/type`, Ctrl-Z with the box focused | `properties.text` of the control |
 | Limits | 210 builds, expect 200 nodes in the status file and the oldest gone | status file |
 | Tree option | undo twice, do a new action, undo, redo along both branches | status file and world state |
+| Grid store retention | delete grids until the per world budget is exceeded, with two deletes of one grid among them | the older copy of that grid is gone, its newest copy stays, unrelated older entries are gone first; then push past the point where only newest copies remain and see the oldest of those go |
+| Grid history dialog | open with the binding, read the table through `/v1/ui/screens/{i}/controls`, click columns in the order Time then Name, double click a row | rows sorted by name then time descending; after the double click the clipboard is active (paste via `/v1/input/key` and a new grid with that name appears) |
 | Persistence | `POST /v1/game/save`, check `Undo.xml.gz` in the save folder and in the newest `Backup/` folder, `game/reload`, undo still reverts the last build | filesystem and world state |
 | Backup restore | copy the newest backup's files up a level on disk the way the game does, load, history matches | world state |
 | Permissions | survival world: raze undo refused without creative tools, allowed after `settings/admin-flag` enables them | notification text in the log, world state |
@@ -441,7 +521,7 @@ Gaps that need Remote plugin work first, tracked in a separate ticket: no endpoi
 read or write a PB program, no skin in block detail, painting only in one fixed color,
 no host lobby endpoint (so the friends host mode is a manual test until then).
 
-## 13. Follow up tickets
+## 14. Follow up tickets
 
 - Remote plugin endpoints for the Undo tests: PB program get and set, skin in block
   detail, paint with a given color and skin, host an offline lobby.
@@ -452,7 +532,7 @@ no host lobby endpoint (so the friends host mode is a manual test until then).
   `OnEntityAdd` matching heuristic. Everything else works client only, so this is not
   required for the first release.
 
-## 14. Risks and open points
+## 15. Risks and open points
 
 - R1, closed generic patching. `MyTerminalValueControl<TBlock, TValue>.SetValue` must
   be patched per closed type. Instantiations over reference types share JIT code, so
@@ -470,8 +550,9 @@ no host lobby endpoint (so the friends host mode is a manual test until then).
   a live merge of a drifted dynamic piece works after resetting its world matrix, must
   be confirmed in the first prototype. Fallback for both is the client path with its
   documented losses.
-- R4, memory: a group snapshot of a large ship is several MB uncompressed. Snapshots are
-  kept gzip compressed in memory as well, and the byte budget bounds the total.
+- R4, disk and memory: a group snapshot of a large ship is several MB uncompressed.
+  Entries are written gzip compressed and read only when applied or pasted; the store
+  budgets bound the total on disk.
 - R5, the game's paste strips blocks with missing DLC or skins and scripts for non
   scripters, so an undo of a delete can come back slightly different on a server. The
   plugin reports "restored with changes" when the block count differs.
@@ -480,7 +561,7 @@ no host lobby endpoint (so the friends host mode is a manual test until then).
   stroke on the same grid could be misattributed. Rare, and the reverse just repaints
   those blocks to their pre-stroke color.
 
-## 15. Implementation order
+## 16. Implementation order
 
 1. History, Node, Op base, GridRegistry, UndoDocument serialization, unit tests without
    the game (plain `dotnet test` project against the History and Storage code).
@@ -492,3 +573,5 @@ no host lobby endpoint (so the friends host mode is a manual test until then).
 6. Text context.
 7. Persistence in the save folder, client side world file, backup tests.
 8. Survival and DS client behavior, permission tests, tree option.
+9. Grid store retention and the grid history dialog. The store itself exists from
+   step 4 because the paste and delete ops write into it.

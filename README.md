@@ -7,6 +7,10 @@ Covered: placing and removing blocks, painting and skins, pasting and deleting g
 terminal property changes, block and grid names, programmable block programs and single
 line text fields. The history is saved with the world and follows its backups.
 
+Grids the plugin captures for undo (deleted, pasted, split) are kept under a size budget
+and listed in a grid history dialog, sortable by time, name, block count and more. Double
+click puts a backed up grid group on the clipboard for pasting.
+
 Vanilla binds Ctrl-Z to relative dampeners and Ctrl-Y to toggling all reactors. While
 this plugin is enabled those move to Ctrl-Shift-Z and Ctrl-Shift-Y. All four bindings,
 the history limits and the storage locations are in the plugin settings.
