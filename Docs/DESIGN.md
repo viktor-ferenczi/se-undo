@@ -373,6 +373,30 @@ entries across all world folders, so an old world's entries give way to the curr
 one. The client history retention days of section 8 delete whole world folders as
 before.
 
+Oversized entries. When a single entry, once compressed, is larger than the per world
+budget or the total budget, cleanup cannot make room for it, so the plugin asks the
+player right away with a message box (`MyGuiSandbox.CreateMessageBox`, Yes and No):
+
+> Backing up "<main grid name>" (<grid count> grids, <block count> blocks) needs
+> <entry MB> MB, more than the <per world | total> grid store budget of <budget MB> MB.
+> Raise the budget to <new MB> MB? "No" keeps the budget and drops the backup, so the
+> change you just made cannot be undone.
+
+Yes raises every exceeded budget to the smallest multiple of the budget raise step
+(config, default 64 MB) that holds the entry, saves the config, and commits the entry
+and its history node. No, or closing the box, discards the entry and records a barrier
+node in place of the action's node. Ctrl-Z at a barrier says "Undo not available:
+backup was too large for the budget" and goes no further; older nodes stay in the
+tree but cannot be reached by undo because the world has changed past them. The
+config option "Oversized grid backups" pre-answers the question with "Always raise"
+or "Never store", default "Ask".
+
+The player's action itself is not held back: the capture runs in a prefix before the
+game's delete or paste, and the message box answer arrives a frame or more later. The
+entry is written to a temporary file next to the store meanwhile, the history of that
+context is locked for undo and redo until the answer comes (the same lock as pending
+ops in section 10), and the answer then commits or deletes the temporary file.
+
 Dialog. Opened by a configurable binding (default Ctrl-Shift-H, to be checked against
 the vanilla default controls at implementation time) in the Build context, and by a
 button in the plugin's config dialog. It is a `MyGuiScreenBase` with a
@@ -435,6 +459,8 @@ other tunables.
 | Max nodes: Text | 100 | Per text box |
 | Grid store budget per world MB | 256 | Section 9 retention, per world folder |
 | Grid store budget total MB | 1024 | Section 9 retention, whole storage root |
+| Budget raise step MB | 64 | Granularity when a budget is raised for an oversized entry |
+| Oversized grid backups | Ask | Ask, Always raise, Never store; section 9 |
 | Grid history binding | Ctrl-Shift-H | Opens the recovery dialog in the Build context |
 | Grid history sort keys | Time descending | Saved column sort history of the dialog |
 | Undo tree | off | Keep abandoned branches |
@@ -511,6 +537,7 @@ Coverage, one test per row, each followed by redo where it applies:
 | Limits | 210 builds, expect 200 nodes in the status file and the oldest gone | status file |
 | Tree option | undo twice, do a new action, undo, redo along both branches | status file and world state |
 | Grid store retention | delete grids until the per world budget is exceeded, with two deletes of one grid among them | the older copy of that grid is gone, its newest copy stays, unrelated older entries are gone first; then push past the point where only newest copies remain and see the oldest of those go |
+| Oversized entry | set the per world budget to 1 MB, delete a grid whose backup is larger, answer No through the message box, Ctrl-Z; then repeat with Yes | first: the grid stays deleted, the log has the barrier refusal, the config is unchanged; second: the config budget is raised to the next step, the entry is in the index, undo restores the grid |
 | Grid history dialog | open with the binding, read the table through `/v1/ui/screens/{i}/controls`, click columns in the order Time then Name, double click a row | rows sorted by name then time descending; after the double click the clipboard is active (paste via `/v1/input/key` and a new grid with that name appears) |
 | Persistence | `POST /v1/game/save`, check `Undo.xml.gz` in the save folder and in the newest `Backup/` folder, `game/reload`, undo still reverts the last build | filesystem and world state |
 | Backup restore | copy the newest backup's files up a level on disk the way the game does, load, history matches | world state |
