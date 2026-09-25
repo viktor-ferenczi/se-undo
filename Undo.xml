@@ -5,23 +5,30 @@
     <Id>AC284074-A676-4930-B47A-F30450988608</Id>
 
     <!-- GitHub repository ID -->
-    <RepoId>todo-github-user/project-name</RepoId>
+    <RepoId>viktor-ferenczi/se-undo</RepoId>
 
     <!-- The name of your plugin that will appear in the plugin list -->
     <FriendlyName>TODO Undo</FriendlyName>
 
     <!-- The author name that you want to appear in the plugin list -->
-    <Author>TODO Author Name</Author>
+    <Author>Viktor Ferenczi</Author>
 
     <!-- Optional tooltip for the plugin in the plugin list -->
-    <Tooltip>TODO Short description</Tooltip>
+    <Tooltip>Ctrl-Z undoes and Ctrl-Y redoes block building, painting, grid paste and delete, terminal changes and text edits</Tooltip>
 
     <!-- Optional plugin description. If omitted, this will be the same as the Tooltip. 1000 characters max. -->
-    <Description>TODO Long description, multiple lines.
+    <Description>Undo and redo for ship design.
 
-        This text is shown on the plugin details panel in a scrollable text box.
+        Ctrl-Z reverts the last operation in the current context and Ctrl-Y applies it again.
+        Covered: placing and removing blocks, painting and skins, pasting and deleting grids,
+        terminal property changes, block and grid names, programmable block programs and
+        single line text fields. Both keys can be rebound in the plugin settings, because
+        vanilla uses Ctrl-Z for relative dampeners and Ctrl-Y for toggling all reactors.
 
-        You can use links here, players can click on them. For example, add a Discord invite.
+        The history is saved with the world and follows its backups. Works offline, when
+        hosting for friends, and as far as the server allows when connected to a server.
+        In survival only what a player could do anyway can be undone unless creative tools
+        are enabled.
     </Description>
 
     <!-- Only source code in the Directory entries listed in SourceDirectories is compiled. Exclude any test projects or similar. -->
