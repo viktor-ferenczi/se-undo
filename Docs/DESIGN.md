@@ -87,23 +87,29 @@ Key handling per context:
 
 - Build: Harmony prefix on `MyGuiScreenGamePlay.HandleUnhandledInput`. When the undo or
   redo binding is newly pressed, run it and mark the key as consumed for this frame. A
-  postfix on `MyControllerHelper.IsControl` returns false for `DAMPING_RELATIVE` and
-  `TOGGLE_REACTORS_ALL` while the plugin consumed the key, so relative dampeners and
-  reactors don't toggle. Disabling the vanilla controls is not an option: with the
-  Ctrl variant disabled, `MyVRageInput.IsPriorityKeyPressed` lets Ctrl-Z fall through
-  to plain `DAMPING`.
+  postfix on `MyControllerHelper.IsControl(context, controlId, ...)` rewrites the
+  answer for the two displaced vanilla controls: it returns false for
+  `DAMPING_RELATIVE` and `TOGGLE_REACTORS_ALL` while the plugin consumed the key, and
+  returns true for them when their replacement binding from the config is newly
+  pressed (`MyControlStateType.NEW_PRESSED` only). The vanilla code that follows,
+  sound, `SwitchDamping`, `SetDampeningEntity`, `SwitchReactors` and the input
+  recording, runs unchanged. Disabling the vanilla controls instead is not an option:
+  with the Ctrl variant disabled, `MyVRageInput.IsPriorityKeyPressed` lets Ctrl-Z fall
+  through to plain `DAMPING`.
 - Terminal: prefix on `MyGuiScreenTerminal.HandleUnhandledInput`, same pattern. A
   focused text box consumes the key before this runs, so the two never clash.
 - Text: prefix on `MyGuiControlTextbox.HandleInput`. When the control has focus and the
   binding is newly pressed, restore the previous snapshot and return the control (input
   consumed).
 
-Default bindings are Ctrl-Z and Ctrl-Y in every context, both rebindable in the
-plugin's config dialog. This takes relative dampeners and "toggle all reactors" away
-from their default keys while the plugin is enabled. The settings dialog says so next
-to the bindings. Users who want both can rebind either side. A mode that only takes the
-keys while the cube builder or clipboard is active was considered and left out of the
-first version; it is a small addition later if people ask for it.
+Default bindings are Ctrl-Z and Ctrl-Y in every context. This takes relative dampeners
+and "toggle all reactors" away from their default keys while the plugin is enabled, so
+the config provides replacement bindings for both: Ctrl-Shift-Z for relative dampeners
+and Ctrl-Shift-Y for toggle all reactors. All four bindings are `Binding` values in the
+config dialog and can be changed or cleared. When a replacement is cleared the vanilla
+control is simply unreachable through the keyboard while undo holds its key, which the
+dialog says next to the option. The plugin's bindings are only checked when the
+respective context is active, so Ctrl-Shift-Z in a text box still means nothing.
 
 ## 4. History model
 
@@ -246,13 +252,28 @@ deletes the top level files and copies the backup's files back, including ours. 
 As from within the game writes a fresh snapshot through the same staging folder, so
 the file follows. Save As from the Load menu copies top level files, so it follows too.
 
-Client of a server: no save folder, and no save event. The document goes to
-`<UserDataPath>/Undo/Worlds/<key>.xml.gz` with `key = <ServerId>_<sanitized SessionName>`
-(`WorldId` is added when it isn't `Guid.Empty`). It is written on `OnUnloading`, when
-the `OnServerSaving(true)` RPC arrives, and at most once a minute after a change. This
-history is not tied to the server's own backups; if the server restores an older world
-the plugin refuses nodes whose grids are gone, as in section 6. The config has a switch
-to turn client side persistence off.
+Client of a server (dedicated or someone else's lobby): no save folder, and no save
+event. The document goes into the plugin's own storage folder, with one sub-folder per
+server and per player character:
+
+```
+<storage root>/Servers/<server>/<player>/<world>.xml.gz
+
+storage root   default <UserDataPath>/Undo, configurable
+server         Sync.ServerId, plus the sanitized host name for readability when known
+player         Sync.MyId (the Steam id) and the local identity id
+               (MySession.Static.LocalPlayerId), joined with an underscore, so two
+               accounts or a reset identity on the same server don't share a history
+world          sanitized SessionName, plus WorldId when it isn't Guid.Empty
+```
+
+It is written on `OnUnloading`, when the `OnServerSaving(true)` RPC arrives, and at
+most once per the configured interval after a change (default one minute). This history
+is not tied to the server's own backups; if the server restores an older world the
+plugin refuses nodes whose grids are gone, as in section 6. Old files are removed when
+they are older than the configured retention (default 90 days) so the folder does not
+grow with every server ever visited. The config has a switch to turn client side
+persistence off.
 
 ## 9. Applying an action
 
@@ -280,19 +301,36 @@ Failures reported by the server (`BuildBlocksFailedNotify`, `OnColorGridBlockFai
 Stored by the template's `ConfigStorage` in `<UserDataPath>/Storage/Undo.cfg`, edited
 through the generated dialog.
 
+Everything with a number or a key in this document is an option here; the code has no
+other tunables.
+
 | Option | Default | Notes |
 |---|---|---|
-| Undo binding, Redo binding | Ctrl-Z, Ctrl-Y | `Binding` type from the template; used by all contexts |
-| Enable Build context, Terminal context, Text context | on | Per context switch |
-| Max nodes: Build, Terminal | 200 | Node cap per history |
+| Undo binding, Redo binding | Ctrl-Z, Ctrl-Y | `Binding` type from the template; checked only in the active context |
+| Relative dampeners binding | Ctrl-Shift-Z | Replacement for the displaced vanilla `DAMPING_RELATIVE`; clear to drop it |
+| Toggle all reactors binding | Ctrl-Shift-Y | Replacement for the displaced vanilla `TOGGLE_REACTORS_ALL`; clear to drop it |
+| Enable Build context, Terminal context, Text context | on | Per context switch; a disabled context neither records nor takes the keys |
+| Max nodes: Build, Terminal | 200 | Node cap per persisted history |
 | Max nodes: Text | 100 | Per text box |
-| Snapshot budget MB | 64 | Byte cap for all snapshots in a history |
+| Snapshot budget MB: Build, Terminal | 64 | Byte cap for all snapshots in a history |
 | Undo tree | off | Keep abandoned branches |
+| Group link type for snapshots | Logical | `GridLinkTypeEnum` used to collect a grid group; Physical also follows connectors |
 | Record terminal changes outside the terminal | off | Toolbar and script driven property changes |
-| Persist on multiplayer client | on | Section 8 |
-| Paint stroke timeout ms | 300 | Coalescing window |
-| Notifications | on | HUD text on undo and redo |
-| Debug status file | off | Writes `<UserDataPath>/Undo/status.json` after every history change, for the tests |
+| Restore removed blocks with full state | on | Use the paste path when creative rights allow it; off always rebuilds from the definition |
+| Paint stroke timeout ms | 300 | Coalescing window for held mouse painting |
+| Text coalescing window ms | 500 | Typing pauses shorter than this stay in one text snapshot |
+| Pending operation timeout s | 5 | How long the executor waits for an asynchronous op before marking the node unknown |
+| Paste match window s | 5 | How long `OnEntityAdd` candidates are matched to a pending paste on a client |
+| Paste match position tolerance m | 0.5 | Position tolerance for that match |
+| Persist in the world save | on | Section 8, offline and hosting |
+| Persist on multiplayer client | on | Section 8, client side storage |
+| Client storage root | `<UserDataPath>/Undo` | Root of the `Servers/` tree |
+| Client autosave interval s | 60 | Minimum time between client side writes after a change |
+| Client history retention days | 90 | Files older than this are deleted at plugin start |
+| Notifications | on | HUD text on undo, redo and refusals |
+| Notification duration ms | 2000 | HUD text lifetime |
+| Debug status file | off | Writes `<Client storage root>/status.json` after every history change, for the tests |
+| Log level | Info | Plugin log verbosity in the game log |
 
 ## 11. Code structure
 
