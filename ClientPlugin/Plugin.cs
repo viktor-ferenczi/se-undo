@@ -1,4 +1,5 @@
-﻿using System.Reflection;
+using System.Reflection;
+using ClientPlugin.Session;
 using ClientPlugin.Settings;
 using ClientPlugin.Settings.Layouts;
 using HarmonyLib;
@@ -9,8 +10,9 @@ using VRage.Plugins;
 #if !LOCAL_BUILD
 [assembly: AssemblyVersion("1.0.0.0")]
 [assembly: AssemblyFileVersion("1.0.0.0")]
+
 #endif
-    
+
 namespace ClientPlugin;
 
 // ReSharper disable once UnusedType.Global
@@ -20,28 +22,29 @@ public class Plugin : IPlugin
     public static Plugin Instance { get; private set; }
     private SettingsGenerator settingsGenerator;
 
-    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    [System.Runtime.CompilerServices.MethodImpl(
+        System.Runtime.CompilerServices.MethodImplOptions.NoInlining
+    )]
     public void Init(object gameInstance)
     {
         Instance = this;
         Instance.settingsGenerator = new SettingsGenerator();
 
-        // TODO: Put your one time initialization code here.
+        Config.Current.PropertyChanged += (_, _) => UndoSession.Configure();
+
         var harmony = new Harmony(Name);
         harmony.PatchAll(Assembly.GetExecutingAssembly());
     }
 
     public void Dispose()
     {
-        // TODO: Save state and close resources here, called when the game exits (not guaranteed!)
         // IMPORTANT: Do NOT call harmony.UnpatchAll() here! It may break other plugins.
-
         Instance = null;
     }
 
     public void Update()
     {
-        // TODO: Put your update code here. It is called on every simulation frame!
+        UndoSession.Update();
     }
 
     // ReSharper disable once UnusedMember.Global
@@ -50,10 +53,4 @@ public class Plugin : IPlugin
         Instance.settingsGenerator.SetLayout<Simple>();
         MyGuiSandbox.AddScreen(Instance.settingsGenerator.Dialog);
     }
-
-    //TODO: Uncomment and use this method to load asset files
-    /*public void LoadAssets(string folder)
-    {
-
-    }*/
 }
