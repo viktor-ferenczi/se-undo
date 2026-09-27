@@ -32,14 +32,40 @@ def test_build_then_undo_and_redo(game):
     wait_until(lambda: not game.exists(cell), "the block to go again")
 
 
-def test_undo_takes_the_dampener_key(game):
-    # Ctrl-Z is relative dampeners in vanilla; while undo holds it, dampeners stay.
-    # Redo first: the history is back at its start after the build test.
-    dampeners = game.api.get_character()["dampeners"]
+def test_displaced_vanilla_keys(game):
+    """Ctrl-Z is relative dampeners in vanilla and plain Z toggles dampeners. While
+    undo holds Ctrl-Z, neither fires on it; Ctrl-Shift-Z is relative dampeners."""
+    api = game.api
+    if api.get_character()["state"] == "sitting":
+        api.key("F")
+        wait_until(
+            lambda: api.get_character()["state"] != "sitting", "leaving the seat"
+        )
+
+    def dampeners():
+        return api.get_character()["dampeners"]
+
+    def settle():
+        time.sleep(0.5)
+        return dampeners()
+
+    before = dampeners()
+    api.key("Z")
+    wait_until(lambda: dampeners() != before, "plain Z to toggle dampeners")
+    if dampeners():
+        api.key("Z")
+        wait_until(lambda: not dampeners(), "dampeners off")
+
+    # Relative dampeners would switch them on; redo and undo leave them off. Redo
+    # first, the build test left its node undone, so the pair changes nothing.
     game.redo(expect="Redo: ")
     game.undo(expect="Undo: ")
-    time.sleep(0.5)
-    assert game.api.get_character()["dampeners"] == dampeners
+    assert settle() is False
+
+    # The replacement switches them on, and plain Z does not toggle them back
+    api.key("Z", ["LeftControl", "LeftShift"])
+    wait_until(dampeners, "relative dampeners on Ctrl-Shift-Z")
+    assert settle() is True
 
 
 def test_raze_then_undo_keeps_the_block_detail(game):
@@ -237,6 +263,38 @@ def test_tree_keeps_the_abandoned_branch(game):
     wait_until(lambda: game.exists(c), "c redone")
     assert not game.exists(a)
     assert game.build()["current"] == node_c["id"]
+
+
+def test_terminal_context_has_its_own_history(game):
+    cell = rig.BUILD_CELL
+    last = game.last_node_id()
+    game.api.character_build_block(game.station, cell)
+    game.wait_recorded(last, "placed 1 block")
+
+    game.api.key("K")
+    terminal = wait_until(
+        lambda: next(
+            (
+                i
+                for i, s in enumerate(game.api.list_screens())
+                if s.get("type") == "MyGuiScreenTerminal" and s.get("hasFocus")
+            ),
+            None,
+        )
+        is not None,
+        "the terminal",
+    )
+    assert terminal
+    # Screens take no input while their opening transition runs
+    time.sleep(1)
+    try:
+        assert game.undo(expect=None) == "Nothing to undo"
+        assert game.exists(cell)
+    finally:
+        rig.focus_gameplay(game.api)
+
+    assert game.undo() == "Undo: placed 1 block"
+    wait_until(lambda: not game.exists(cell), "the block to go")
 
 
 def test_limits_drop_the_oldest_nodes(game):

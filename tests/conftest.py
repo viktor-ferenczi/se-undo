@@ -140,15 +140,15 @@ def wait_until(predicate, what: str, timeout: float = 20.0, interval: float = 0.
 def game():
     api = rig.api()
     attach = os.environ.get("UNDO_ATTACH") == "1" and rig.running_pid()
-    if not attach:
-        rig.stop()
-        rig.prepare_world()
-        rig.launch()
-        api.wait_for_api(max_wait=240)
-        rig.load_world(api)
-    rig.ensure_character(api)
-    rig.focus_gameplay(api)
     try:
+        if not attach:
+            rig.stop()
+            rig.prepare_world()
+            rig.launch()
+            api.wait_for_api(max_wait=240)
+            rig.load_world(api)
+        rig.ensure_character(api)
+        rig.focus_gameplay(api)
         yield Game(api)
     finally:
         if os.environ.get("UNDO_KEEP") != "1":
