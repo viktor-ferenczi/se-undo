@@ -65,7 +65,12 @@ public class BlockLinks
         var terminal = grid.GridSystems.TerminalSystem;
         foreach (var link in links)
         {
-            if (!MyEntities.TryGetEntityById(link.EntityId, out MyTerminalBlock block))
+            // Only the block restored under its old id, not whatever took the id meanwhile
+            if (
+                !MyEntities.TryGetEntityById(link.EntityId, out MyTerminalBlock block)
+                || block.CubeGrid != grid
+                || block.Min != link.Min
+            )
                 continue;
 
             foreach (var name in link.Groups)

@@ -71,7 +71,8 @@ public static class InputPatches
             }
         }
 
-        private static void Postfix()
+        // A finalizer, so the key is released even if the vanilla handler throws
+        private static void Finalizer()
         {
             consumedKey = MyKeys.None;
             replacedControl = null;
