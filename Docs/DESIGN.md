@@ -419,9 +419,11 @@ entry is written to a temporary file next to the store meanwhile, the history of
 context is locked for undo and redo until the answer comes (the same lock as pending
 ops in section 10), and the answer then commits or deletes the temporary file.
 
-Dialog. Opened by a configurable binding (default Ctrl-Shift-H, to be checked against
-the vanilla default controls at implementation time) in the Build context, and by a
-button in the plugin's config dialog. It is a `MyGuiScreenBase` with a
+Dialog. Opened by a configurable binding (default Ctrl-Shift-H) in the Build context,
+and by a button in the plugin's config dialog. Checked on 2026-09-28: no vanilla game
+control uses Ctrl-Shift-H, but `MyDX9Gui.HandleInput` toggles the general stats
+profiler on H with any Ctrl held, Shift or not, so this default also toggles that
+overlay. Pick another default or suppress it when the dialog is built. It is a `MyGuiScreenBase` with a
 `MyGuiControlTable` listing the entries of the current world and player only, one row
 per index entry. Columns in this order: Time (local), Name, Blocks, Grids, PCU, Size,
 Reason. Bytes and the static flag are shown in the row tooltip rather than as columns

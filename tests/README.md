@@ -6,6 +6,11 @@ run while other test clients are up.
 
 ## One time setup
 
+The Remote plugin repo has to sit next to this one (`se1/plugins/remote`): the rig
+imports its Python client and copies its Earth test world. The game's own
+`~/.config/SpaceEngineers/SpaceEngineers.cfg` seeds the client's config on the first
+run, with experimental mode switched on.
+
 A Pulsar folder of its own, with only the Remote and Undo dev folders enabled:
 
 ```bash

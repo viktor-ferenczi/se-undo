@@ -38,7 +38,6 @@ PORT = int(os.environ.get("UNDO_REMOTE_PORT", "24176"))
 BASE_URL = f"http://127.0.0.1:{PORT}"
 PID_FILE = APPDATA / "game.pid"
 LAUNCH_LOG = APPDATA / "launch.log"
-GAME_LOG = APPDATA / "SpaceEngineers.log"
 STATUS_FILE = APPDATA / "Undo" / "status.json"
 
 GAME_ARGS = [
@@ -372,7 +371,7 @@ def write_configs() -> None:
     # The Earth world is experimental; a fresh user data folder says it is not
     game_cfg = APPDATA / "SpaceEngineers.cfg"
     if not game_cfg.exists():
-        shutil.copy(HOME / ".se-test/perf-data/SpaceEngineers.cfg", game_cfg)
+        shutil.copy(HOME / ".config/SpaceEngineers/SpaceEngineers.cfg", game_cfg)
     text = game_cfg.read_text(encoding="utf-8")
     text = re.sub(
         r"(<Key>ExperimentalMode</Key>\s*<Value>\s*<Value[^>]*>)\w+(</Value>)",

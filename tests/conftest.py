@@ -83,15 +83,12 @@ class Game:
             ), f"{message!r} after {before['lastMessage']!r}"
         return message
 
-    def wait_idle(self):
-        wait_until(lambda: not self.build()["locked"], "the history to unlock")
-
-    def wait_recorded(self, count_before: int, label: str) -> dict:
-        """Waits for a new node with this label, returns it"""
+    def wait_recorded(self, after_id: int, label: str) -> dict:
+        """Waits for a node newer than after_id with this label, returns it"""
 
         def newest():
             nodes = self.build()["nodes"]
-            return nodes[-1] if nodes and nodes[-1]["id"] > count_before else None
+            return nodes[-1] if nodes and nodes[-1]["id"] > after_id else None
 
         node = wait_until(
             lambda: (n := newest()) and n["label"] == label and n, f"node {label!r}"

@@ -105,13 +105,6 @@ public class UndoHistory
         CurrentId = node.Id;
     }
 
-    public void Clear()
-    {
-        Nodes.Clear();
-        CurrentId = RootId;
-        Pending = null;
-    }
-
     // Drops the oldest nodes from the root side until the cap holds. A dropped node's
     // descendants on other branches than the current one are dropped with it.
     private void Trim()
