@@ -419,11 +419,13 @@ entry is written to a temporary file next to the store meanwhile, the history of
 context is locked for undo and redo until the answer comes (the same lock as pending
 ops in section 10), and the answer then commits or deletes the temporary file.
 
-Dialog. Opened by a configurable binding (default Ctrl-Shift-H) in the Build context,
-and by a button in the plugin's config dialog. Checked on 2026-09-28: no vanilla game
-control uses Ctrl-Shift-H, but `MyDX9Gui.HandleInput` toggles the general stats
-profiler on H with any Ctrl held, Shift or not, so this default also toggles that
-overlay. Pick another default or suppress it when the dialog is built. It is a `MyGuiScreenBase` with a
+Dialog. Opened by a configurable binding (default Ctrl-H) in the Build context, and by
+a button in the plugin's config dialog. No vanilla game control uses Ctrl-H, but
+`MyDX9Gui.HandleInput` toggles the render profiler (on its "Statistics" graph) on H
+with any Ctrl held, Shift or not, through `MyGeneralStats.ToggleProfiler`, its only
+caller. A prefix there skips the toggle while the Build context is active and the
+grid history binding matches exactly, so Ctrl-Shift-H keeps opening the profiler and
+Ctrl-H outside gameplay still does too. It is a `MyGuiScreenBase` with a
 `MyGuiControlTable` listing the entries of the current world and player only, one row
 per index entry. Columns in this order: Time (local), Name, Blocks, Grids, PCU, Size,
 Reason. Bytes and the static flag are shown in the row tooltip rather than as columns
@@ -485,7 +487,7 @@ other tunables.
 | Grid store budget total MB | 2048 | Section 9 retention, whole storage root |
 | Budget raise step MB | 64 | Granularity when a budget is raised for an oversized entry |
 | Oversized grid backups | Ask | Ask, Always raise, Never store; section 9 |
-| Grid history binding | Ctrl-Shift-H | Opens the recovery dialog in the Build context |
+| Grid history binding | Ctrl-H | Opens the recovery dialog in the Build context; takes Ctrl-H from the vanilla render profiler there, which stays on Ctrl-Shift-H |
 | Grid history sort keys | Time descending | Saved column sort history of the dialog, stored as comma separated column names with a leading `-` for descending (`-Time`); no control in the config dialog |
 | Undo tree | off | Keep abandoned branches |
 | Group link type for snapshots | Logical | `GridLinkTypeEnum` used to collect a grid group; Physical also follows connectors |

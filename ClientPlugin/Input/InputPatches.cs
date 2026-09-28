@@ -5,6 +5,7 @@ using ClientPlugin.Session;
 using ClientPlugin.Settings.Tools;
 using ClientPlugin.Text;
 using HarmonyLib;
+using Sandbox.Engine;
 using Sandbox.Game;
 using Sandbox.Game.Gui;
 using Sandbox.Graphics.GUI;
@@ -111,6 +112,25 @@ public static class InputPatches
                 )
             )
                 __result = false;
+        }
+    }
+
+    // Vanilla MyDX9Gui.HandleInput toggles the render profiler on H with any Ctrl held,
+    // and this is its only caller. In gameplay the grid history binding (Ctrl-H by
+    // default) takes the key; Ctrl-Shift-H and the other combinations still reach it.
+    [HarmonyPatch(typeof(MyGeneralStats), nameof(MyGeneralStats.ToggleProfiler))]
+    private static class ProfilerTogglePatch
+    {
+        private static bool Prefix()
+        {
+            var config = Config.Current;
+            var gridHistory =
+                UndoSession.Document != null
+                && config.EnableBuildContext
+                && MyScreenManager.GetScreenWithFocus() is MyGuiScreenGamePlay
+                && MyGuiScreenGamePlay.ActiveGameplayScreen == null
+                && config.GridHistoryBinding.HasPressed(MyInput.Static);
+            return !gridHistory;
         }
     }
 

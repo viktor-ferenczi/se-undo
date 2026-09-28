@@ -55,7 +55,7 @@ public class Config : INotifyPropertyChanged
     private int gridStoreBudgetTotalMb = 2048;
     private int budgetRaiseStepMb = 64;
     private OversizedGridBackups oversizedGridBackups = OversizedGridBackups.Ask;
-    private Binding gridHistoryBinding = new Binding(MyKeys.H, ctrl: true, shift: true);
+    private Binding gridHistoryBinding = new Binding(MyKeys.H, ctrl: true);
     private string gridHistorySortKeys = "-Time";
 
     private bool persistInTheWorldSave = true;
@@ -317,7 +317,10 @@ public class Config : INotifyPropertyChanged
         set => SetField(ref oversizedGridBackups, value);
     }
 
-    [Keybind(description: "Opens the grid history in gameplay")]
+    [Keybind(
+        description: "Opens the grid history in gameplay. Vanilla Ctrl-H toggles the render "
+            + "profiler, which stays on Ctrl-Shift-H."
+    )]
     public Binding GridHistoryBinding
     {
         get => gridHistoryBinding;
