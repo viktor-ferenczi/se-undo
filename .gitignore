@@ -366,3 +366,6 @@ MigrationBackup/
 
 # Plugin specific
 *.il
+
+# Python test environment
+.venv/
