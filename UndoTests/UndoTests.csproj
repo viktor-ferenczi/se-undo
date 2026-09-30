@@ -10,6 +10,7 @@
   <ItemGroup>
     <Compile Include="../ClientPlugin/History/*.cs" LinkBase="History" />
     <Compile Include="../ClientPlugin/Storage/*.cs" LinkBase="Storage" />
+    <Compile Include="../ClientPlugin/GridStore/GridStore.cs" LinkBase="GridStore" />
   </ItemGroup>
 
   <ItemGroup>
