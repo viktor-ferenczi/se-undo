@@ -26,6 +26,8 @@ public class PaintOp : Op
     public bool ApplySkin;
     public List<BlockPaint> Blocks = new List<BlockPaint>();
 
+    public override IEnumerable<int> GridHandles() => new[] { Grid };
+
     public override string Validate(GridRegistry grids)
     {
         var grid = grids.ResolveGrid(Grid);

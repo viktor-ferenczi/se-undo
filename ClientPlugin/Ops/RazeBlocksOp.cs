@@ -16,8 +16,9 @@ public class SplitPiece
     public int Grid;
     public Vector3I Key;
 
-    // The piece as it was right after the split, captured on multiplayer clients only
-    public string BuilderXml;
+    // Grid store entry of the piece as it was right after the split, captured on
+    // multiplayer clients only
+    public string Entry;
 }
 
 public class RazeBlocksOp : Op
@@ -25,6 +26,11 @@ public class RazeBlocksOp : Op
     public int Grid;
     public List<Vector3I> Positions = new List<Vector3I>();
     public List<SplitPiece> Pieces = new List<SplitPiece>();
+
+    public override IEnumerable<int> GridHandles() => new[] { Grid };
+
+    public override IEnumerable<string> StoreRefs() =>
+        Pieces.Select(p => p.Entry).Where(id => id != null);
 
     public override string Validate(GridRegistry grids)
     {

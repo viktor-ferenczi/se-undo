@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using ClientPlugin.GridStore;
 using ClientPlugin.History;
 using ClientPlugin.Ops;
 using ClientPlugin.Session;
 using Sandbox.Game.Entities;
+using Sandbox.Game.Entities.Cube;
 using Sandbox.Game.Multiplayer;
 using VRage.Utils;
 using VRageMath;
@@ -15,29 +17,37 @@ namespace ClientPlugin.Record;
 // methods; the patches check CanRecord first, which is false while ops are replayed.
 public static class Recorder
 {
-    private static readonly List<RazeCapture> settling = new List<RazeCapture>();
+    private static readonly List<ICapture> settling = new List<ICapture>();
     private static PaintStroke stroke;
+
+    // Grids a client asked to paste blocks into, until the server's broadcast arrives
+    private static readonly Dictionary<MyCubeGrid, DateTime> expectedMerges =
+        new Dictionary<MyCubeGrid, DateTime>();
 
     public static bool CanRecord =>
         UndoSession.Document != null && !Replay.Active && Config.Current.EnableBuildContext;
 
-    // A removal waits a frame or two for grid splits before it becomes a node
+    // A removal waits a frame or two for grid splits, a paste for its grids, before
+    // it becomes a node
     public static bool IsBusy => settling.Count != 0;
 
     public static void Reset()
     {
         foreach (var capture in settling)
-            capture.Watch.Close();
+            capture.Abort();
         settling.Clear();
+        expectedMerges.Clear();
         stroke = null;
     }
+
+    public static void Begin(ICapture capture) => settling.Add(capture);
 
     public static void Update()
     {
         if (stroke != null && stroke.Expired)
             Flush();
 
-        foreach (var capture in settling.Where(c => c.Watch.Settled).ToList())
+        foreach (var capture in settling.Where(c => c.Settled).ToList())
         {
             settling.Remove(capture);
             try
@@ -46,9 +56,13 @@ public static class Recorder
             }
             catch (Exception e)
             {
-                Log.Error($"Recording a block removal failed, it cannot be undone: {e}");
+                Log.Error($"Recording a {capture.GetType().Name} failed, it cannot be undone: {e}");
             }
         }
+
+        var now = DateTime.UtcNow;
+        foreach (var grid in expectedMerges.Where(e => e.Value < now).Select(e => e.Key).ToList())
+            expectedMerges.Remove(grid);
     }
 
     // Commits the paint stroke being coalesced, if any
@@ -59,12 +73,19 @@ public static class Recorder
         finished?.Commit();
     }
 
-    public static void Commit(string label, List<Op> forward, List<Op> reverse)
+    public static Node Commit(string label, List<Op> forward, List<Op> reverse)
     {
-        UndoSession.Document.Build.Record(label, forward, reverse, DateTime.UtcNow);
+        var node = UndoSession.Document.Build.Record(label, forward, reverse, DateTime.UtcNow);
         Log.Debug($"Recorded: {label}");
         UndoSession.Changed();
+        return node;
     }
+
+    // Main grid name, plus how many grids came with it
+    public static string Describe(StoreRow row) =>
+        row.GridCount == 1
+            ? row.MainGridName
+            : $"{row.MainGridName} and {Plural(row.GridCount - 1, "more grid")}";
 
     public static int Handle(MyCubeGrid grid) => UndoSession.Document.Grids.GetOrAdd(grid.EntityId);
 
@@ -121,6 +142,65 @@ public static class Recorder
         var capture = RazeCapture.Begin(grid, positions);
         if (capture != null)
             settling.Add(capture);
+    }
+
+    // Grids a paste or a single block placement created. Redo creates them again from
+    // the store, undo closes them. The label gets the grid description at {0}.
+    public static void RecordCreated(
+        List<MyCubeGrid> grids,
+        StoreReason reason,
+        string label,
+        bool referenceLost
+    )
+    {
+        var row = StoredGroups.Save(StoredGroups.Capture(grids), reason);
+        var handles = grids.Select(Handle).ToList();
+        var node = Commit(
+            string.Format(label, Describe(row)),
+            new List<Op>
+            {
+                new PasteGridsOp { Entry = row.Id, Grids = handles },
+            },
+            new List<Op> { new CloseGridsOp { Grids = handles } }
+        );
+        node.ReferenceLost = referenceLost;
+    }
+
+    public static void ExpectMerge(MyCubeGrid grid) =>
+        expectedMerges[grid] = DateTime.UtcNow.AddSeconds(Config.Current.PendingOperationTimeoutS);
+
+    public static bool TakeMergeExpectation(MyCubeGrid grid) => expectedMerges.Remove(grid);
+
+    // Blocks a paste put into an existing grid: the grid's blocks now, minus the ones
+    // it had before. Redo restores them like removed blocks, which keeps their ids
+    // on a local server; undo removes them.
+    public static void RecordMerge(MyCubeGrid grid, HashSet<MySlimBlock> before)
+    {
+        var added = grid.CubeBlocks.Where(b => !before.Contains(b)).ToList();
+        if (added.Count == 0)
+            return;
+
+        var handle = Handle(grid);
+        Commit(
+            $"pasted {Plural(added.Count, "block")} into {grid.DisplayName}",
+            new List<Op>
+            {
+                new RestoreBlocksOp
+                {
+                    Grid = handle,
+                    BlocksXml = BuilderXml.Write(
+                        GameAccess.BlocksBuilder(
+                            grid,
+                            added.Select(b => b.GetObjectBuilder()).ToList()
+                        )
+                    ),
+                },
+            },
+            new List<Op>
+            {
+                new RazeBlocksOp { Grid = handle, Positions = added.Select(b => b.Min).ToList() },
+            }
+        );
     }
 
     public static void OpenStroke(MyCubeGrid grid)

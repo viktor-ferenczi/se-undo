@@ -12,5 +12,8 @@ public static class OpTypes
         typeof(RestoreBlocksOp),
         typeof(MergeBackOp),
         typeof(PaintOp),
+        typeof(PasteGridsOp),
+        typeof(GroupSnapshotOp),
+        typeof(CloseGridsOp),
     };
 }

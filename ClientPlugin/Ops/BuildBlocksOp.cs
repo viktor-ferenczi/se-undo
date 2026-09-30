@@ -17,6 +17,8 @@ public class BuildBlocksOp : Op
     public string Skin;
     public List<BlockPlacement> Blocks = new List<BlockPlacement>();
 
+    public override IEnumerable<int> GridHandles() => new[] { Grid };
+
     public override string Validate(GridRegistry grids) =>
         grids.ResolveGrid(Grid) == null ? GameAccess.GridMissing : null;
 

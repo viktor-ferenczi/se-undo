@@ -49,30 +49,30 @@ public sealed class GridStoreTests : IDisposable
             .Replace("-", "")
             .ToLowerInvariant();
 
-        Assert.Equal(expected, GridStore.IdOf(Xml));
-        Assert.Equal(64, GridStore.IdOf(Xml).Length);
-        Assert.NotEqual(GridStore.IdOf(Xml), GridStore.IdOf(Xml + " "));
+        Assert.Equal(expected, GridStoreFolder.IdOf(Xml));
+        Assert.Equal(64, GridStoreFolder.IdOf(Xml).Length);
+        Assert.NotEqual(GridStoreFolder.IdOf(Xml), GridStoreFolder.IdOf(Xml + " "));
     }
 
     [Fact]
     public void AddWritesTheEntryAndReadsItBack()
     {
-        var store = new GridStore(folder);
+        var store = new GridStoreFolder(folder);
         var row = store.Add(Xml, Row(StoreReason.Deleted));
 
-        Assert.Equal(GridStore.IdOf(Xml), row.Id);
+        Assert.Equal(GridStoreFolder.IdOf(Xml), row.Id);
         Assert.True(File.Exists(Path.Combine(folder, row.Id + ".sbc.gz")));
         Assert.Equal(new FileInfo(store.EntryPath(row.Id)).Length, row.Bytes);
         Assert.True(row.Bytes > 0);
         Assert.Equal(Xml, store.Read(row.Id));
-        Assert.Null(store.Read(GridStore.IdOf("missing")));
+        Assert.Null(store.Read(GridStoreFolder.IdOf("missing")));
         Assert.Empty(Directory.GetFiles(folder, "*.tmp"));
     }
 
     [Fact]
     public void TheSameGroupStoredTwiceIsOneFileWithTwoRows()
     {
-        var store = new GridStore(folder);
+        var store = new GridStoreFolder(folder);
         var first = store.Add(Xml, Row(StoreReason.Deleted));
         var second = store.Add(Xml, Row(StoreReason.Pasted));
 
@@ -84,9 +84,9 @@ public sealed class GridStoreTests : IDisposable
     [Fact]
     public void IndexKeepsEveryRowFieldAcrossReload()
     {
-        var written = new GridStore(folder).Add(Xml, Row(StoreReason.Split));
+        var written = new GridStoreFolder(folder).Add(Xml, Row(StoreReason.Split));
 
-        var reloaded = new GridStore(folder);
+        var reloaded = new GridStoreFolder(folder);
         var row = Assert.Single(reloaded.Index.Rows);
         Assert.Equal(written.Id, row.Id);
         Assert.Equal(written.TimestampUtc, row.TimestampUtc);
@@ -107,16 +107,19 @@ public sealed class GridStoreTests : IDisposable
     public void ACorruptIndexIsSetAsideNotOverwritten()
     {
         Directory.CreateDirectory(folder);
-        File.WriteAllText(Path.Combine(folder, GridStore.IndexFileName), "<StoreIndex><Rows>");
+        File.WriteAllText(
+            Path.Combine(folder, GridStoreFolder.IndexFileName),
+            "<StoreIndex><Rows>"
+        );
 
-        var store = new GridStore(folder);
+        var store = new GridStoreFolder(folder);
         Assert.Empty(store.Index.Rows);
         store.Add(Xml, Row(StoreReason.Deleted));
 
         Assert.Equal(
             "<StoreIndex><Rows>",
-            File.ReadAllText(Path.Combine(folder, GridStore.IndexFileName + ".bad"))
+            File.ReadAllText(Path.Combine(folder, GridStoreFolder.IndexFileName + ".bad"))
         );
-        Assert.Single(new GridStore(folder).Index.Rows);
+        Assert.Single(new GridStoreFolder(folder).Index.Rows);
     }
 }

@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using ClientPlugin.Apply;
+using ClientPlugin.GridStore;
 using ClientPlugin.History;
+using ClientPlugin.Session;
 using Sandbox.Engine.Multiplayer;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Multiplayer;
@@ -21,13 +23,22 @@ public class MergeBackOp : Op
     public int Grid;
     public List<SplitPiece> Pieces = new List<SplitPiece>();
 
+    public override IEnumerable<int> GridHandles() => Pieces.Select(p => p.Grid).Append(Grid);
+
+    public override IEnumerable<string> StoreRefs() =>
+        Pieces.Select(p => p.Entry).Where(id => id != null);
+
     public override string Validate(GridRegistry grids)
     {
         if (grids.ResolveGrid(Grid) == null)
             return GameAccess.GridMissing;
 
         if (!Sync.IsServer)
+        {
+            if (!Pieces.All(p => UndoSession.Store.Has(p.Entry)))
+                return PasteGridsOp.BackupGone;
             return Permissions.HasCreativeRights ? null : Permissions.NeedsCreativeTools;
+        }
 
         return Pieces.All(p => grids.ResolveGrid(p.Grid) != null)
             ? null
@@ -60,7 +71,7 @@ public class MergeBackOp : Op
             if (piece != null)
                 MyMultiplayer.RaiseEvent(piece, x => x.OnGridClosedRequest);
 
-            var builder = BuilderXml.Read<MyObjectBuilder_CubeGrid>(split.BuilderXml);
+            var builder = StoredGroups.Load(split.Entry)[0];
             builder.PositionAndOrientation = new MyPositionAndOrientation(grid.WorldMatrix);
             grid.PasteBlocksToGrid(
                 new List<MyObjectBuilder_CubeGrid> { builder },

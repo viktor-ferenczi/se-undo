@@ -73,7 +73,7 @@ public class StoreIndex
 // compressed blueprint file named by the SHA-256 of its XML, so an unchanged group
 // stored twice is one file with two index rows. Knows nothing about the game: the
 // caller passes the blueprint XML and the row it computed from the builders.
-public sealed class GridStore
+public sealed class GridStoreFolder
 {
     public const string IndexFileName = "index.xml";
     public const string EntryExtension = ".sbc.gz";
@@ -83,7 +83,7 @@ public sealed class GridStore
     public readonly string Folder;
     public readonly StoreIndex Index;
 
-    public GridStore(string folder)
+    public GridStoreFolder(string folder)
     {
         Folder = folder;
         Index = LoadIndex();

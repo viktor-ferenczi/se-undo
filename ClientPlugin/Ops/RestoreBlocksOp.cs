@@ -26,6 +26,8 @@ public class RestoreBlocksOp : Op
 
     public List<BlockLinks> Links = new List<BlockLinks>();
 
+    public override IEnumerable<int> GridHandles() => new[] { Grid };
+
     public override string Validate(GridRegistry grids) =>
         grids.ResolveGrid(Grid) == null ? GameAccess.GridMissing : null;
 

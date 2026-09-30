@@ -82,6 +82,11 @@ public class UndoHistory
             Label = label,
             Forward = forward,
             Reverse = reverse,
+            StoreRefs = forward
+                .Concat(reverse)
+                .SelectMany(op => op.StoreRefs())
+                .Distinct()
+                .ToList(),
         };
         Nodes.Add(node);
         parent.ChildIds.Add(node.Id);
@@ -157,15 +162,23 @@ public class UndoHistory
     }
 
     // Returns the pending op once it completed or timed out, null while it still runs
+    // A failure the server reported while the op was pending; the next poll ends it
+    // with an unknown result
+    public void FailPending()
+    {
+        if (Pending != null)
+            Pending.Failed = true;
+    }
+
     public PendingOp PollPending(DateTime utcNow)
     {
         var pending = Pending;
         if (pending == null)
             return null;
 
-        if (!pending.IsDone())
+        if (pending.Failed || !pending.IsDone())
         {
-            if (utcNow < pending.DeadlineUtc)
+            if (!pending.Failed && utcNow < pending.DeadlineUtc)
                 return null;
             pending.TimedOut = true;
             pending.Node.UnknownResult = true;
@@ -182,5 +195,17 @@ public sealed class PendingOp
     public bool IsUndo;
     public Func<bool> IsDone;
     public DateTime DeadlineUtc;
+
+    // Set by a failure notification of the server
+    public bool Failed;
+
+    // The op did not complete in time or failed: the node's result is unknown
     public bool TimedOut;
+
+    // The op restores the node's group snapshot instead of replaying its ops
+    public bool ViaSnapshot;
+
+    // Writes the group snapshot taken before the replay to the grid store and returns
+    // the op that restores it; called only when the result turned out unknown
+    public Func<Op> SaveSnapshot;
 }

@@ -12,6 +12,7 @@ public static class Permissions
 {
     public const string NeedsCreativeTools = "needs creative tools";
     public const string NotYourGrid = "the grid belongs to someone else";
+    public const string NoCopyPaste = "copy and paste is disabled";
 
     // Raze blocks
     public static bool CanRemoveBlocks =>
@@ -40,5 +41,35 @@ public static class Permissions
                 return true;
         }
         return false;
+    }
+
+    // Paste grids and group snapshot restore
+    public static bool CanPasteGrids => MySession.Static.IsCopyPastingEnabledForUser(Sync.MyId);
+
+    // Mirror of MyCubeGrid.OnGridClosedRequest: creative rights unless the request is
+    // local, then space master, no big owner, a big owner, or a faction leader of one.
+    // A client must check first, the server answers a rights failure with a kick.
+    public static string CloseRefusal(MyCubeGrid grid)
+    {
+        var session = MySession.Static;
+        if (!Sync.IsServer && !session.HasPlayerCreativeRights(Sync.MyId))
+            return NeedsCreativeTools;
+        if (session.IsUserSpaceMaster(Sync.MyId) || grid.BigOwners.Count == 0)
+            return null;
+
+        var identity = session.LocalPlayerId;
+        var faction = session.Factions.TryGetPlayerFaction(identity);
+        var leader = faction != null && faction.IsLeader(identity);
+        foreach (var owner in grid.BigOwners)
+        {
+            if (owner == identity)
+                return null;
+            if (
+                leader
+                && session.Factions.TryGetPlayerFaction(owner)?.FactionId == faction.FactionId
+            )
+                return null;
+        }
+        return NotYourGrid;
     }
 }
