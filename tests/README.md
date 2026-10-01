@@ -10,6 +10,9 @@ The Remote plugin repo has to sit next to this one (`se1/plugins/remote`): the r
 imports its Python client and copies its Earth test world. The game's own
 `~/.config/SpaceEngineers/SpaceEngineers.cfg` seeds the client's config on the first
 run, with experimental mode switched on.
+The grid tests need two Remote fixes from CometWorks/remote#28 (`grid_close` through
+the player's close request, the target endpoint naming armor blocks); until it is
+merged, check out its `fixes` branch there.
 
 A Pulsar folder of its own, with only the Remote and Undo dev folders enabled:
 

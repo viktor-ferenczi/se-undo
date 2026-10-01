@@ -91,17 +91,21 @@ public static class GridContextPatches
         }
     }
 
-    [HarmonyPatch(typeof(MyGridClipboard), nameof(MyGridClipboard.DeleteGrid))]
-    private static class DeleteGridPatch
+    // The player's close request: the clipboard's Delete and Cut send it, and so does
+    // Remote's grid_close. A group delete sends one per grid and is captured as a whole.
+    private static bool groupDelete;
+
+    [HarmonyPatch(typeof(MyCubeGrid), nameof(MyCubeGrid.SendGridCloseRequest))]
+    private static class CloseRequestPatch
     {
-        private static void Prefix(MyCubeGrid grid)
+        private static void Prefix(MyCubeGrid __instance)
         {
-            if (Recorder.CanRecord && grid != null)
-                Recorder.Begin(new DeleteCapture(new List<MyCubeGrid> { grid }));
+            if (Recorder.CanRecord && !groupDelete)
+                Recorder.Begin(new DeleteCapture(new List<MyCubeGrid> { __instance }));
         }
     }
 
-    // The same grids DeleteGroup closes
+    // The same grids DeleteGroup closes, one node for all of them
     [HarmonyPatch(typeof(MyGridClipboard), nameof(MyGridClipboard.DeleteGroup))]
     private static class DeleteGroupPatch
     {
@@ -114,7 +118,10 @@ public static class GridContextPatches
                 ? MyCubeGridGroups.Static.GetGroups(groupType).GetGroupNodes(grid).ToList()
                 : new List<MyCubeGrid> { grid };
             Recorder.Begin(new DeleteCapture(grids));
+            groupDelete = true;
         }
+
+        private static void Finalizer() => groupDelete = false;
     }
 
     // Paste into an existing grid. A local server merges inside the request, so the
