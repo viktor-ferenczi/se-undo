@@ -56,6 +56,9 @@ class Game:
     def build(self) -> dict:
         return self.status()["histories"]["build"]
 
+    def terminal(self) -> dict:
+        return self.status()["histories"]["terminal"]
+
     def last_message(self) -> str:
         return self.status().get("lastMessage") or ""
 
@@ -83,11 +86,11 @@ class Game:
             ), f"{message!r} after {before['lastMessage']!r}"
         return message
 
-    def wait_recorded(self, after_id: int, label: str) -> dict:
+    def wait_recorded(self, after_id: int, label: str, history: str = "build") -> dict:
         """Waits for a node newer than after_id with this label, returns it"""
 
         def newest():
-            nodes = self.build()["nodes"]
+            nodes = self.status()["histories"][history]["nodes"]
             return nodes[-1] if nodes and nodes[-1]["id"] > after_id else None
 
         node = wait_until(
@@ -95,8 +98,8 @@ class Game:
         )
         return node
 
-    def last_node_id(self) -> int:
-        nodes = self.build()["nodes"]
+    def last_node_id(self, history: str = "build") -> int:
+        nodes = self.status()["histories"][history]["nodes"]
         return nodes[-1]["id"] if nodes else 0
 
     # --- saved world ---------------------------------------------------------

@@ -13,8 +13,9 @@ using VRage.Utils;
 
 namespace ClientPlugin.Input;
 
-// Key handling of the three contexts, design section 3. The plugin's bindings are
-// checked only while their context is active.
+// Key handling of the build and terminal contexts, design section 3; the text
+// context is in Text/TextHistories. The plugin's bindings are checked only while
+// their context is active.
 [SuppressMessage("ReSharper", "UnusedMember.Local")]
 public static class InputPatches
 {
@@ -138,33 +139,21 @@ public static class InputPatches
     {
         private static void Prefix(MyGuiScreenTerminal __instance)
         {
-            // A focused text box has its own context and consumed the key already
+            // With the cursor in a text field the keys are that field's own: the
+            // plugin's text history in a single line box, the vanilla undo in a
+            // multi line one. The terminal history takes them once focus is elsewhere,
+            // or also from a single line box when the separate text undo option is off.
             var document = UndoSession.Document;
             if (
                 document == null
                 || !Config.Current.EnableTerminalContext
                 || __instance.FocusedControl is MyGuiControlTextbox
+                    && !TextHistories.HandedToTerminal
+                || __instance.FocusedControl is MyGuiControlMultilineEditableText
             )
                 return;
 
             HandleUndoRedo(document.Terminal, document.Grids);
-        }
-    }
-
-    [HarmonyPatch(typeof(MyGuiControlTextbox), nameof(MyGuiControlTextbox.HandleInput))]
-    private static class TextboxPatch
-    {
-        private static bool Prefix(MyGuiControlTextbox __instance, ref MyGuiControlBase __result)
-        {
-            if (!Config.Current.EnableTextContext || !__instance.HasFocus)
-                return true;
-
-            var grids = UndoSession.Document?.Grids ?? new GridRegistry();
-            if (HandleUndoRedo(TextHistories.For(__instance), grids) == MyKeys.None)
-                return true;
-
-            __result = __instance;
-            return false;
         }
     }
 }

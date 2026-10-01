@@ -39,6 +39,7 @@ BASE_URL = f"http://127.0.0.1:{PORT}"
 PID_FILE = APPDATA / "game.pid"
 LAUNCH_LOG = APPDATA / "launch.log"
 STATUS_FILE = APPDATA / "Undo" / "status.json"
+WINDOWED = os.environ.get("UNDO_WINDOWED") == "1"
 
 GAME_ARGS = [
     "-multiInstance",
@@ -95,6 +96,7 @@ EVENT_CONTROLLER = (4, 1, 15)
 TARGET = (6, 1, 15)
 SECOND_LIGHT = (8, 1, 15)
 PAINT_LIGHT = (10, 1, 15)
+PROGRAMMABLE = (12, 1, 15)
 PART_B_LIGHT = (18, 1, 8)
 
 IDS = {
@@ -105,6 +107,7 @@ IDS = {
     SECOND_LIGHT: 777000555000015,
     PART_B_LIGHT: 777000555000016,
     PAINT_LIGHT: 777000555000017,
+    PROGRAMMABLE: 777000555000018,
 }
 
 GROUP_NAME = "Undo Group"
@@ -225,6 +228,9 @@ def station_xml(position, forward, up) -> str:
             "LargeTurretControlBlock",
             TURRET_CONTROLLER,
             f"<CustomName>Undo Turret Controller</CustomName><ToolIds><long>{IDS[TARGET]}</long></ToolIds>",
+            # Turned around: its open side with the console faces the floor, where
+            # the character can stand to open its terminal
+            forward="Backward",
         )
     )
     blocks.append(
@@ -239,6 +245,17 @@ def station_xml(position, forward, up) -> str:
     blocks.append(_light(SECOND_LIGHT, "Undo Light 2"))
     blocks.append(_light(PART_B_LIGHT, "Part B Light"))
     blocks.append(_light(PAINT_LIGHT, "Paint Light"))
+    # Turned so its keyboard faces the floor. No test uses it yet (SE1-0060); it is there for
+    # checking program undo by hand.
+    blocks.append(
+        _block(
+            "MyObjectBuilder_MyProgrammableBlock",
+            "LargeProgrammableBlock",
+            PROGRAMMABLE,
+            "<CustomName>Undo Programmable Block</CustomName>",
+            forward="Backward",
+        )
+    )
     groups = f"<BlockGroups>{_group(GROUP_NAME, [TARGET, SECOND_LIGHT])}</BlockGroups>"
     return _grid(STATION_NAME, STATION_ID, blocks, position, forward, up, True, groups)
 
@@ -365,6 +382,7 @@ def prepare_world() -> Path:
         text = text.replace("<StationVoxelSupport>false", "<StationVoxelSupport>true")
         # Pasting in creative needs it, by hand and for undo
         text = text.replace("<EnableCopyPaste>false", "<EnableCopyPaste>true")
+        text = text.replace("<EnableIngameScripts>false", "<EnableIngameScripts>true")
         path.write_text(text, encoding="utf-8")
 
     sector = WORLD / "SANDBOX_0_0_0_.sbs"
@@ -453,8 +471,10 @@ def launch() -> int:
         )
     write_configs()
     log = open(LAUNCH_LOG, "w")
+    # UNDO_WINDOWED=1 opens a real window, for checks done by hand
+    args = [a for a in GAME_ARGS if a != "--headless" or not WINDOWED]
     process = subprocess.Popen(
-        [str(LAUNCHER), *GAME_ARGS],
+        [str(LAUNCHER), *args],
         cwd=PULSAR_DIR,
         stdout=log,
         stderr=subprocess.STDOUT,

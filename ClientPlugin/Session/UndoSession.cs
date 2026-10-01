@@ -48,6 +48,9 @@ public class UndoSession : MySessionComponentBase
         Changed();
     }
 
+    // Entities exist by now, so most terminal controls do too
+    public override void BeforeStart() => TerminalContextPatches.PatchControls();
+
     protected override void UnloadData()
     {
         MyEntities.OnEntityAdd -= PasteMatch.OnEntityAdd;

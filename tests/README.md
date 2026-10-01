@@ -38,7 +38,8 @@ uv run pytest
 Each run copies the Remote suite's Earth world into `~/.se-test/undo-data`, turns
 it into a creative world with trash removal off, unsupported stations and copy and
 paste on, and injects a test station 300 m above the player and a small ship far out
-in space. It also removes the grid store the previous run left under `Undo/Worlds`.
+in space. The station carries a turret controller, whose terminal the terminal tests
+open with F, and a programmable block; scripts are enabled. It also removes the grid store the previous run left under `Undo/Worlds`.
 The grid tests teleport the character onto the free edge of the station and paste
 their test grid into the open air beside it, since the player spawns inside the Earth
 base with a wall in every direction.
@@ -46,5 +47,5 @@ It writes `Remote.cfg` (port 24176) and `Storage/Undo.cfg` (status file, tree
 option, debug log) before it starts the client, and stops that client at the end.
 
 `UNDO_KEEP=1` leaves the client running, `UNDO_ATTACH=1` reuses it on the next
-run. The plugin writes `~/.se-test/undo-data/Undo/status.json` after every history
+run. `UNDO_WINDOWED=1` starts it with a real window, for checks done by hand. The plugin writes `~/.se-test/undo-data/Undo/status.json` after every history
 change; the tests read the histories and the last notification from there.
