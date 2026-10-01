@@ -12,6 +12,18 @@ public static class Permissions
     public const string NeedsCreativeTools = "needs creative tools";
     public const string NotYourGrid = "the grid belongs to someone else";
     public const string NoCopyPaste = "copy and paste is disabled";
+    public const string NotYourBlock = "the block belongs to someone else";
+    public const string NeedsScripter = "needs scripter rights";
+
+    // PB program
+    public static bool IsScripter => MySession.Static.IsUserScripter(Sync.MyId);
+
+    // Mirror of the BigOwner validation of MyCubeGrid.OnChangeDisplayNameRequest, which
+    // the server skips for its own requests
+    public static bool CanRenameGrid(MyCubeGrid grid) =>
+        Sync.IsServer
+        || grid.BigOwners.Count == 0
+        || grid.BigOwners.Contains(MySession.Static.LocalPlayerId);
 
     // Raze blocks
     public static bool CanRemoveBlocks =>

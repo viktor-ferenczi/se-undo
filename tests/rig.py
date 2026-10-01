@@ -225,6 +225,9 @@ def station_xml(position, forward, up) -> str:
             "LargeTurretControlBlock",
             TURRET_CONTROLLER,
             f"<CustomName>Undo Turret Controller</CustomName><ToolIds><long>{IDS[TARGET]}</long></ToolIds>",
+            # Turned around: its open side with the console faces the floor, where
+            # the character can stand to open its terminal
+            forward="Backward",
         )
     )
     blocks.append(

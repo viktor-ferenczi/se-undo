@@ -15,5 +15,8 @@ public static class OpTypes
         typeof(PasteGridsOp),
         typeof(GroupSnapshotOp),
         typeof(CloseGridsOp),
+        typeof(SetPropertyOp),
+        typeof(SetGridNameOp),
+        typeof(SetProgramOp),
     };
 }
