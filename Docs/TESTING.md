@@ -68,7 +68,8 @@ uv run python tests/ds/ds_rig.py start --admin
 uv run python tests/ds/ds_rig.py stop
 ```
 
-`UNDO_KEEP=1` leaves server and client running after a test run.
+`UNDO_KEEP=1` leaves server and client running after a test run, `UNDO_ATTACH=1`
+reuses a running pair for the administrator tests.
 
 ## What is not covered
 

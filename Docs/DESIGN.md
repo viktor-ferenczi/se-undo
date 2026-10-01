@@ -570,7 +570,8 @@ opening the dialog does not also switch the signal mode.
 
 1. Pick the node. If there is none, notify "Nothing to undo" and stop.
 2. Validate every op of the node with its predicate and reference resolution. If any
-   fails, notify why ("Needs creative tools", "Grid no longer exists") and stop. Nothing
+   fails, notify why ("Undo not available: needs creative tools", "... the grid no longer
+   exists") and stop. Nothing
    is applied partially by the plugin's own choice.
 3. Set the re-entrancy flag, apply the ops in order, clear the flag.
 4. Ops that complete asynchronously (paste, close, grid name, paint on a client) are

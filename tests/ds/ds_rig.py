@@ -100,7 +100,7 @@ def _profile(ids) -> str:
 def prepare_world() -> None:
     """The offline rig's test world in survival, plus the copy source"""
     rig.prepare_world(WORLD, mode="Survival")
-    position, forward, up = rig.station_frame()
+    _, forward, up = rig.station_frame()
     source = rig._grid(
         SOURCE_NAME,
         SOURCE_ID,
