@@ -33,16 +33,6 @@ public static class TextHistories
     // Set while a snapshot is put back, which raises the change event too
     private static bool restoring;
 
-    // A text box used the undo or redo key in this frame
-    private static bool keyTaken;
-
-    public static bool TakeKey()
-    {
-        var taken = keyTaken;
-        keyTaken = false;
-        return taken;
-    }
-
     private static string TextOf(MyGuiControlTextbox textbox)
     {
         Buffer.Clear();
@@ -85,15 +75,12 @@ public static class TextHistories
             if (!undo && !config.RedoBinding.HasPressed(input))
                 return true;
 
-            // With nothing to go back to here, the key is left for the screen's own
-            // context. The terminal opens with its search box focused, and Ctrl-Z after
-            // flipping a switch there has to reach the terminal history.
+            // The keys belong to the text box while it has the cursor, with or without
+            // something to go back to; the screen's own history never sees them
             var snapshot = undo ? history.Undo() : history.Redo();
-            if (snapshot == null)
-                return true;
+            if (snapshot != null)
+                Restore(__instance, snapshot.Value);
 
-            Restore(__instance, snapshot.Value);
-            keyTaken = true;
             __result = __instance;
             return false;
         }

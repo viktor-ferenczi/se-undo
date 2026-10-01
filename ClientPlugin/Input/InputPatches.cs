@@ -2,7 +2,6 @@ using System.Diagnostics.CodeAnalysis;
 using ClientPlugin.Apply;
 using ClientPlugin.History;
 using ClientPlugin.Session;
-using ClientPlugin.Text;
 using HarmonyLib;
 using Sandbox.Engine;
 using Sandbox.Game;
@@ -137,12 +136,18 @@ public static class InputPatches
     [HarmonyPatch(typeof(MyGuiScreenTerminal), nameof(MyGuiScreenTerminal.HandleUnhandledInput))]
     private static class TerminalPatch
     {
-        private static void Prefix()
+        private static void Prefix(MyGuiScreenTerminal __instance)
         {
-            // A focused text box with something to undo used the key already
-            var textTookKey = TextHistories.TakeKey();
+            // With the cursor in a text field the keys are that field's own: the
+            // plugin's text history in a single line box, the vanilla undo in a
+            // multi line one. The terminal history takes them once focus is elsewhere.
             var document = UndoSession.Document;
-            if (document == null || !Config.Current.EnableTerminalContext || textTookKey)
+            if (
+                document == null
+                || !Config.Current.EnableTerminalContext
+                || __instance.FocusedControl is MyGuiControlTextbox
+                || __instance.FocusedControl is MyGuiControlMultilineEditableText
+            )
                 return;
 
             HandleUndoRedo(document.Terminal, document.Grids);

@@ -108,8 +108,8 @@ its own node limit.
 | Context | Active when | History | Persisted |
 |---|---|---|---|
 | Build | `MyGuiScreenGamePlay` has focus and no other game screen is open (`MyGuiScreenGamePlay.ActiveGameplayScreen == null`) | Block build and raze, grid paste and close, paint and skin | Yes, per world |
-| Terminal | `MyGuiScreenTerminal` is the focused screen and no text box took the key | Terminal property changes, block and grid names, PB program updates | Yes, per world |
-| Text | A `MyGuiControlTextbox` has keyboard focus, in any screen, and has a snapshot to go to | Text and caret snapshots of that control | No, dies with the control |
+| Terminal | `MyGuiScreenTerminal` is the focused screen and no text field has the cursor | Terminal property changes, block and grid names, PB program updates | Yes, per world |
+| Text | A `MyGuiControlTextbox` has keyboard focus, in any screen | Text and caret snapshots of that control | No, dies with the control |
 | PB editor | `MyGuiScreenEditor` | Vanilla undo, untouched | No |
 
 Terminal changes made while the terminal is closed (toolbar toggles, hotkeys, scripts)
@@ -132,17 +132,23 @@ Key handling per context:
   recording, runs unchanged. Disabling the vanilla controls instead is not an option:
   with the Ctrl variant disabled, `MyVRageInput.IsPriorityKeyPressed` lets Ctrl-Z fall
   through to plain `DAMPING`.
-- Terminal: prefix on `MyGuiScreenTerminal.HandleUnhandledInput`, same pattern. The
-  terminal history is reachable only here, so a change recorded with the terminal
-  closed is undone after opening it.
-- Text: prefix on `MyGuiControlTextbox.HandleInput`. When the control has focus, the
-  binding is newly pressed and the text history has a snapshot in that direction,
-  restore it and return the control (input consumed). With nothing to go to, the key
-  is left alone and reaches the screen. This matters in the terminal: its control
-  panel page opens with the block search box focused, and a property set through the
-  Remote API or the mouse leaves the focus there, so Ctrl-Z after flipping a switch
-  has to fall through to the terminal history. The text prefix sets a flag when it
-  used the key and the terminal prefix reads it, so one key press never acts twice.
+- Terminal: prefix on `MyGuiScreenTerminal.HandleUnhandledInput`, same pattern. It
+  does nothing while the focused control is a `MyGuiControlTextbox` or a
+  `MyGuiControlMultilineEditableText`. The terminal history is reachable only here,
+  so a change recorded with the terminal closed is undone after opening it.
+- Text: prefix on `MyGuiControlTextbox.HandleInput`. When the control has focus and the
+  binding is newly pressed, restore the snapshot in that direction if there is one,
+  and return the control (input consumed) either way.
+
+While the cursor is in a text field, Ctrl-Z and Ctrl-Y belong to that field alone:
+the plugin's text history in a single line box (search boxes included), the vanilla
+undo in a multi line one. They never reach the terminal history from there, also
+when the field has nothing to undo, because mixing character level undo with the
+terminal history would be confusing. Clicking or tabbing out of the field hands the
+keys back to the terminal. The value a text field sets is still part of the terminal
+history as a whole: a rename typed into the Name box is one terminal node. The
+terminal's control panel page opens with the cursor in the block search box, so the
+keys act on the terminal only after the focus moved to another control.
 
 Default bindings are Ctrl-Z and Ctrl-Y in every context. This takes relative dampeners
 and "toggle all reactors" away from their default keys while the plugin is enabled, so
@@ -210,7 +216,7 @@ section 6. Every op has a validator (the predicate from section 2) and an apply 
 | Block custom name | The terminal's Name box is a property control ("Name") and goes through `SetValue` on every text change. Prefixes on both `MyTerminalBlock.SetCustomName` overloads catch the other callers (mod API, Remote); they skip while a `SetValue` call is on the stack, which is the deduplication | `SetProperty(block, "Name", name)` | `SetProperty(block, "Name", oldName)` | No op type of its own. The Name box renames on every keystroke, not when the field loses focus; the burst rule above makes that one node per rename |
 | Grid name | Prefix on `MyCubeGrid.ChangeDisplayNameRequest(string)`; old value is `DisplayName` | `SetGridName` | `SetGridName(old)` | The Info tab sends it from the OK button and on Enter. Apply sends the same request; on a client it is pending until the broadcast changed `DisplayName` |
 | PB program | Prefix on the private `MyProgrammableBlock.SaveCode()`, where the editor's OK button and its "save changes?" question both end; old value is `m_programData`, new value the editor text. Also a prefix on the mod API setter `IMyProgrammableBlock.ProgramData` | `SetProgram(pb, source)` | `SetProgram(pb, oldSource)` | The design first hooked `SendUpdateProgramRequest` (client) and `UpdateProgram(string)` (server). Neither works: `SaveCode` stores the new source in the block before it sends the request, so the old one is gone by then, and where the server is local `SaveCode` calls `Recompile` directly and never reaches `UpdateProgram`, which only runs for another player's request. Apply sets `IMyProgrammableBlock.ProgramData`, which recompiles or sends the request. Runtime state and Storage are lost, accepted. Sources are stored gzip compressed; a block that never had a program stores none |
-| Single line text box edits | Postfix on the private `MyGuiControlTextbox.OnTextChangedInternal`, which every text change goes through and which raises `TextChanged`. With focus: a snapshot of (text, caret), replacing the previous one while typing continues within 500 ms. Without focus the screen set the text, which resets the history. The `HandleInput` prefix takes the starting snapshot of a focused box, the postfix refreshes the caret, because paste and the arrow keys move it after the change | n/a | n/a | Transient per control, keyed by a `ConditionalWeakTable<MyGuiControlTextbox, TextHistory>`. Default 100 snapshots per control. Restoring a snapshot calls `SetText`, so listeners follow: an undo in the terminal's Name box renames the block, which the terminal history records as a rename like any other. `MyGuiControlMultilineEditableText` is another class and is not touched |
+| Single line text box edits | Postfix on the private `MyGuiControlTextbox.OnTextChangedInternal`, which every text change goes through and which raises `TextChanged`. With focus: a snapshot of (text, caret), replacing the previous one while typing continues within 500 ms. Without focus the screen set the text, which resets the history. The `HandleInput` prefix takes the starting snapshot of a focused box, the postfix refreshes the caret, because paste and the arrow keys move it after the change | n/a | n/a | Transient per control, keyed by a `ConditionalWeakTable<MyGuiControlTextbox, TextHistory>`. Default 100 snapshots per control. Restoring a snapshot calls `SetText`, so listeners follow: an undo in the terminal's Name box renames the block, which the terminal history records as part of that rename. `MyGuiControlMultilineEditableText` is another class and is not touched |
 
 Not recorded in the first version: inventory transfers, production queue changes,
 projector settings that are already terminal properties (those are covered), merge
@@ -648,9 +654,9 @@ Coverage, one test per row, each followed by redo where it applies:
 | Clipboard delete | look at the grid, Ctrl-Delete, Yes in the confirmation box; this deletes the group | exactly one new node; undo brings the grid back under its id |
 | Paste into a grid then undo | look at the wall, Ctrl-C, Ctrl-V, aim at the wall so the preview snaps onto its face, left button as raw gameplay input (`/v1/input/state`; the GUI click endpoint does not reach the clipboard) | the 9 merged cells exist; undo removes only them, redo puts them back |
 | New grid from one block then undo | armor block into toolbar slot 1, `D1`, look into open air, left button | the new grid; undo removes it, redo brings it back under the same entity id |
-| Terminal property | open the turret controller's terminal with the injected F key, `control/set` on its target locking checkbox and, three times like a drag, on a slider; also the `property` set op with the terminal closed, undone after opening it | `property` get op, the checkbox control following the undo, one node for the three slider values |
+| Terminal property | open the turret controller's terminal with the injected F key, Tab out of the block search box, `control/set` on its target locking checkbox and, three times like a drag, on a slider; also the `property` set op with the terminal closed, undone after opening it | `property` get op, the checkbox control following the undo, one node for the three slider values |
 | Block name, grid name | terminal Name text box via `control/set`, twice, and the `custom_name` set op; grid name via the grid call `SetCustomName`, which sends the request the Info tab sends. Switching to the Info tab through the Remote API crashes the client (SE1-0071) | block detail, `grid` get op, one node per rename |
-| Text box | type two words into the terminal's block search box via `input/type`, with a pause longer than the coalescing window between them, then Ctrl-Z and Ctrl-Y with the box focused | `properties.text` of the control after each step; the terminal history unchanged |
+| Text box | type two words into the terminal's block search box via `input/type`, with a pause longer than the coalescing window between them, then Ctrl-Z and Ctrl-Y with the box focused, more of them than there are steps; then Tab and Ctrl-Z | `properties.text` of the control after each step; the terminal history and the last notification unchanged while the box has the cursor, the terminal answering after the Tab |
 | Limits | 210 builds, expect 200 nodes in the status file and the oldest gone | status file |
 | Tree option | build twice, undo twice, build again, undo, redo | status file: the abandoned branch is kept next to the new one, redo follows the branch visited last; world state |
 | Displaced vanilla keys | leave the cryo chamber, plain Z to switch the character dampeners off, Ctrl-Y and Ctrl-Z, then Ctrl-Shift-Z | dampeners stay off under undo and redo, come on with Ctrl-Shift-Z and stay on |

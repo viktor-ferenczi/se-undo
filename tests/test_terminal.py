@@ -58,9 +58,17 @@ def terminal_index(api) -> int | None:
     )
 
 
+def focus_is_text(api) -> bool:
+    return api.get_focus()["control"]["type"] == "MyGuiControlTextbox"
+
+
 @contextmanager
-def terminal(game):
-    """The block's terminal, opened with F and closed again afterwards"""
+def terminal(game, leave_search_box: bool = True):
+    """The block's terminal, opened with F and closed again afterwards.
+
+    It opens with the cursor in the block search box, where Ctrl-Z and Ctrl-Y belong
+    to that box. Tab moves the focus on to the block list, so the keys reach the
+    terminal history."""
     api = game.api
     api.character_look_at(*rig.station_point(AIM))
 
@@ -74,6 +82,10 @@ def terminal(game):
     # Screens take no input while their opening transition runs
     time.sleep(1)
     try:
+        assert focus_is_text(api)
+        if leave_search_box:
+            api.key("Tab")
+            wait_until(lambda: not focus_is_text(api), "the focus to leave the box")
         yield terminal_index(api)
     finally:
         rig.focus_gameplay(api)
@@ -114,7 +126,6 @@ def test_checkbox_through_the_terminal(game):
         recorded(game, last, label)
         assert prop(game, CHECKBOX) is (not before)
 
-        # The search box has focus but no text history, so the terminal gets the key
         assert game.undo() == f"Undo: {label}"
         assert prop(game, CHECKBOX) is before
         wait_until(
@@ -232,12 +243,13 @@ def test_grid_name(game):
 
 
 def test_text_box_typing_then_undo(game):
-    """The block search box of the terminal has the focus when it opens"""
+    """With the cursor in a text box the keys are local to it, with or without
+    something to undo there. The terminal history takes them after leaving the box."""
     api = game.api
-    with terminal(game) as screen:
+    with terminal(game, leave_search_box=False) as screen:
         focused = api.get_focus()["control"]
-        assert focused["type"] == "MyGuiControlTextbox"
-        nodes = game.terminal()["count"]
+        before = game.terminal()
+        message = game.last_message()
 
         def text():
             # Every search box of the terminal names its text box the same
@@ -262,8 +274,25 @@ def test_text_box_typing_then_undo(game):
         press("Z", "turret")
         press("Z", "")
 
-        # The text box took those keys; the terminal history saw none of them
-        assert game.terminal()["count"] == nodes
+        # Nothing left to undo in the box: the key still stays there
+        api.key("Z", ["LeftControl"])
+        api.key("Y", ["LeftControl"])
+        api.key("Y", ["LeftControl"])
+        api.key("Y", ["LeftControl"])
+        time.sleep(0.5)
+        assert text() == "turret c"
+        after = game.terminal()
+        assert (after["count"], after["current"]) == (
+            before["count"],
+            before["current"],
+        )
+        assert game.last_message() == message
+
+        # Out of the box, the same key is the terminal's
+        api.key("Tab")
+        wait_until(lambda: not focus_is_text(api), "the focus to leave the box")
+        assert game.undo(expect=None).startswith(("Undo: ", "Nothing to undo"))
+        assert text() == "turret c"
 
 
 @pytest.mark.skip(
