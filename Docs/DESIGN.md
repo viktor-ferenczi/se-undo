@@ -90,9 +90,9 @@ sending a request that fails with a notification:
 | Restore blocks with full state (paste into grid) | `HasPlayerCreativeRights(Sync.MyId)`; otherwise fall back to Build blocks |
 | Paste grids, close grids, group snapshot restore | `IsCopyPastingEnabledForUser(Sync.MyId)` for the paste; for the close the ownership rule of `OnGridClosedRequest` (space master, no big owner, a big owner, or the faction leader of one), and on a client creative rights first, because the server answers a rights failure with `ValidationFailed`, which can kick. In creative without creative tools copy and paste follows the world's `EnableCopyPaste`, which the Earth test world has off; the test rig turns it on |
 | Paint and skin | Ownership rule of `ColorGridOrBlockRequestValidation` (no creative rights needed) |
-| Terminal property, block name | `control.CanLocalPlayerChangeValue()` on the resolved block |
-| Grid name | Same as above, big owner |
-| PB program | `IsUserScripter(Sync.MyId)` |
+| Terminal property, block name | `CanLocalPlayerChangeValue()` of the resolved block |
+| Grid name | The `BigOwner` validation of `OnChangeDisplayNameRequest`: the grid has no big owner or the player is one. The server skips it for its own requests |
+| PB program | `IsUserScripter(Sync.MyId)`, and `CanLocalPlayerChangeValue()` of the block |
 
 Survival as a regular player therefore has: build, paint, terminal property, names, PB
 program. It does not have raze, paste, close and snapshot restore, so undo cannot be
@@ -108,8 +108,8 @@ its own node limit.
 | Context | Active when | History | Persisted |
 |---|---|---|---|
 | Build | `MyGuiScreenGamePlay` has focus and no other game screen is open (`MyGuiScreenGamePlay.ActiveGameplayScreen == null`) | Block build and raze, grid paste and close, paint and skin | Yes, per world |
-| Terminal | `MyGuiScreenTerminal` is the focused screen and no text box has focus | Terminal property changes, block and grid names, PB program updates | Yes, per world |
-| Text | A `MyGuiControlTextbox` has keyboard focus, in any screen | Text and caret snapshots of that control | No, dies with the control |
+| Terminal | `MyGuiScreenTerminal` is the focused screen and no text box took the key | Terminal property changes, block and grid names, PB program updates | Yes, per world |
+| Text | A `MyGuiControlTextbox` has keyboard focus, in any screen, and has a snapshot to go to | Text and caret snapshots of that control | No, dies with the control |
 | PB editor | `MyGuiScreenEditor` | Vanilla undo, untouched | No |
 
 Terminal changes made while the terminal is closed (toolbar toggles, hotkeys, scripts)
@@ -132,11 +132,17 @@ Key handling per context:
   recording, runs unchanged. Disabling the vanilla controls instead is not an option:
   with the Ctrl variant disabled, `MyVRageInput.IsPriorityKeyPressed` lets Ctrl-Z fall
   through to plain `DAMPING`.
-- Terminal: prefix on `MyGuiScreenTerminal.HandleUnhandledInput`, same pattern. A
-  focused text box consumes the key before this runs, so the two never clash.
-- Text: prefix on `MyGuiControlTextbox.HandleInput`. When the control has focus and the
-  binding is newly pressed, restore the previous snapshot and return the control (input
-  consumed).
+- Terminal: prefix on `MyGuiScreenTerminal.HandleUnhandledInput`, same pattern. The
+  terminal history is reachable only here, so a change recorded with the terminal
+  closed is undone after opening it.
+- Text: prefix on `MyGuiControlTextbox.HandleInput`. When the control has focus, the
+  binding is newly pressed and the text history has a snapshot in that direction,
+  restore it and return the control (input consumed). With nothing to go to, the key
+  is left alone and reaches the screen. This matters in the terminal: its control
+  panel page opens with the block search box focused, and a property set through the
+  Remote API or the mouse leaves the focus there, so Ctrl-Z after flipping a switch
+  has to fall through to the terminal history. The text prefix sets a flag when it
+  used the key and the terminal prefix reads it, so one key press never acts twice.
 
 Default bindings are Ctrl-Z and Ctrl-Y in every context. This takes relative dampeners
 and "toggle all reactors" away from their default keys while the plugin is enabled, so
@@ -200,11 +206,11 @@ section 6. Every op has a validator (the predicate from section 2) and an apply 
 | Paste blocks into an existing grid | Local server: prefix and postfix on `MyCubeGrid.PasteBlocksToGrid`; the server request runs inside it, so the new blocks are the grid's blocks after minus before. Client: the `PasteBlocksToGrid` prefix notes the grid, and a prefix and postfix on `PasteBlocksToGridClient_Implementation` take the same difference when the broadcast arrives | `RestoreBlocks(grid, merged blocks)` | `RazeBlocks(grid, positions)` | The broadcast never runs on a local server: `ShouldServerInvokeLocally` does not invoke a broadcast-only event there. The forward op is the removed block restore with the merged blocks read back from the grid, so a server redo keeps their ids; on a client it is the `PasteBlocksToGrid` request. The game merges only the first clipboard grid and adds the others as grids of their own, which are not recorded |
 | Delete grid or group (clipboard Delete, Cut, Remote's `grid_close`) | Prefix on `MyCubeGrid.SendGridCloseRequest`, the player's close request, which the clipboard's `DeleteGrid` sends and Remote's `grid_close` sends on both sides since CometWorks/remote#28; a prefix on `MyGridClipboard.DeleteGroup` captures the whole group as one node and keeps the per grid requests inside it from becoming nodes of their own. Snapshot `grid.GetObjectBuilder(true)` for each grid (same as `CopyGridInternal`: clear pilots and turret shooting; the copy variant keeps the entity ids). Only grids that really closed count: at once on a local server, when they are gone or the pending timeout passed on a client | `CloseGrids` | `PasteGrids(store entry at original position and velocity)` | Server: re-created without remapping, ids and references to other grids survive. Client: paste request, new ids, handles rebound |
 | Paint or skin blocks, area or whole grid | Prefix and postfix on `MyCubeGrid.ChangeColorAndSkin(MySlimBlock, Vector3?, MyStringHash?)` record old and new per block; only when the change was initiated locally: a prefix on `SkinBlocks`, `SkinGrid`, `ColorBlocks` or `ColorGrid` opens a "paint stroke" for that grid, and `ChangeColorAndSkin` calls on it while the stroke is open are attributed to it | `Paint(grid, [(pos, hsv, skin)])` | `Paint(grid, [(pos, oldHsv, oldSkin)])` | Holding the mouse button calls `SkinBlocks` every frame. Calls are coalesced into one node until 300 ms pass without a call or a change; undo and redo commit an open stroke first. Color and skin are only applied when the stroke changed them, so a skin the player does not own is never sent. Apply groups blocks of equal (hsv, skin) into runs of adjacent block min positions along X and calls `SkinBlocks(min, max, hsv, skin, false)` per run; a run only covers cells that are min positions of its own blocks |
-| Terminal property change | Prefix and postfix on `MyTerminalValueControl<TBlock, TValue>.SetValue(TBlock, TValue)` for every closed control type found through `MyTerminalControlFactory.GetControls(Type)` for all registered block types. Prefix reads `GetValue(block)` as the old value | `SetProperty(block, controlId, value)` | `SetProperty(block, controlId, oldValue)` | Values: bool, float, long, Color, StringBuilder, enums, MyStringId. Multi select changes with N target blocks become one node with N ops. Apply resolves the control by id via `MyTerminalControlFactory.GetControls` and calls `SetValue`, which triggers the normal sync. See risk R1 for the closed generic patching |
-| Block custom name | Covered by the terminal "Name" text box through `SetValue`; also a prefix on `MyTerminalBlock.SetCustomName(string)` when the terminal is open, deduplicated with the property node | `SetCustomName` | `SetCustomName(old)` | Text box edits are committed once when the field loses focus or Enter is pressed, so one node per rename |
-| Grid name | Prefix on `MyCubeGrid.ChangeDisplayNameRequest(string)`; old value is `DisplayName` | `SetGridName` | `SetGridName(old)` | Applied when the server broadcast arrives |
-| PB program | Prefix on `MyProgrammableBlock.SendUpdateProgramRequest(string)` (client) and on `UpdateProgram(string)` when `Sync.IsServer`; old value is the current `IMyProgrammableBlock.ProgramData` | `SetProgram(pb, source)` | `SetProgram(pb, oldSource)` | Apply sets `IMyProgrammableBlock.ProgramData`, which recompiles or sends the request. Runtime state and Storage are lost, accepted. Sources are stored gzip compressed |
-| Single line text box edits | `TextChanged` on the focused `MyGuiControlTextbox`; snapshots of (text, caret) coalesced while typing continues within 500 ms | n/a | n/a | Transient per control, keyed by a `ConditionalWeakTable<MyGuiControlTextbox, TextHistory>`. Default 100 snapshots per control |
+| Terminal property change | Prefix, postfix and finalizer on `MyTerminalValueControl<TBlock, TValue>.SetValue(TBlock, TValue)` and its overrides, found through `MyTerminalControlFactory.GetControls(Type)` for the block type of every cube block definition (risk R1). The prefix reads `GetValue(block)` as the old value, the postfix reads it again as the new one, since setters clamp. A per thread depth counter makes only the outermost call count: the checkbox and combo box overrides call the base method. While the terminal is open only blocks in the control's `TargetBlocks` are recorded, so a script that sets some other block's property meanwhile is left out; with "record outside the terminal" on every call counts | `SetProperty(block, controlId, value)` | `SetProperty(block, controlId, oldValue)` | Values are stored as text: bool, float, long, Color (packed), StringBuilder, enums, MyStringId. A control with another value type is logged once and neither patched nor recorded. Apply resolves the control by id via `MyTerminalControlFactory.GetControls` and calls `SetValue` through reflection, which triggers the normal sync. Changes arrive in bursts (a slider drag every frame, a multi selection once per block), so calls for the same control are collected until the text coalescing window passes without one, then become one node with one op per block. A block whose value ends where it started is dropped. Undo and redo commit an open burst first |
+| Block custom name | The terminal's Name box is a property control ("Name") and goes through `SetValue` on every text change. Prefixes on both `MyTerminalBlock.SetCustomName` overloads catch the other callers (mod API, Remote); they skip while a `SetValue` call is on the stack, which is the deduplication | `SetProperty(block, "Name", name)` | `SetProperty(block, "Name", oldName)` | No op type of its own. The Name box renames on every keystroke, not when the field loses focus; the burst rule above makes that one node per rename |
+| Grid name | Prefix on `MyCubeGrid.ChangeDisplayNameRequest(string)`; old value is `DisplayName` | `SetGridName` | `SetGridName(old)` | The Info tab sends it from the OK button and on Enter. Apply sends the same request; on a client it is pending until the broadcast changed `DisplayName` |
+| PB program | Prefix on the private `MyProgrammableBlock.SaveCode()`, where the editor's OK button and its "save changes?" question both end; old value is `m_programData`, new value the editor text. Also a prefix on the mod API setter `IMyProgrammableBlock.ProgramData` | `SetProgram(pb, source)` | `SetProgram(pb, oldSource)` | The design first hooked `SendUpdateProgramRequest` (client) and `UpdateProgram(string)` (server). Neither works: `SaveCode` stores the new source in the block before it sends the request, so the old one is gone by then, and where the server is local `SaveCode` calls `Recompile` directly and never reaches `UpdateProgram`, which only runs for another player's request. Apply sets `IMyProgrammableBlock.ProgramData`, which recompiles or sends the request. Runtime state and Storage are lost, accepted. Sources are stored gzip compressed; a block that never had a program stores none |
+| Single line text box edits | Postfix on the private `MyGuiControlTextbox.OnTextChangedInternal`, which every text change goes through and which raises `TextChanged`. With focus: a snapshot of (text, caret), replacing the previous one while typing continues within 500 ms. Without focus the screen set the text, which resets the history. The `HandleInput` prefix takes the starting snapshot of a focused box, the postfix refreshes the caret, because paste and the arrow keys move it after the change | n/a | n/a | Transient per control, keyed by a `ConditionalWeakTable<MyGuiControlTextbox, TextHistory>`. Default 100 snapshots per control. Restoring a snapshot calls `SetText`, so listeners follow: an undo in the terminal's Name box renames the block, which the terminal history records as a rename like any other. `MyGuiControlMultilineEditableText` is another class and is not touched |
 
 Not recorded in the first version: inventory transfers, production queue changes,
 projector settings that are already terminal properties (those are covered), merge
@@ -533,7 +539,7 @@ other tunables.
 | Record terminal changes outside the terminal | off | Toolbar and script driven property changes |
 | Restore removed blocks with full state | on | Use the paste path when creative rights allow it; off always rebuilds from the definition |
 | Paint stroke timeout ms | 300 | Coalescing window for held mouse painting |
-| Text coalescing window ms | 500 | Typing pauses shorter than this stay in one text snapshot |
+| Text coalescing window ms | 500 | Typing pauses shorter than this stay in one text snapshot. Also the window that collects terminal changes of one control into one node |
 | Pending operation timeout s | 5 | How long the executor waits for an asynchronous op before marking the node unknown |
 | Paste match window s | 5 | How long `OnEntityAdd` candidates are matched to a pending paste on a client |
 | Paste match position tolerance m | 0.5 | Position tolerance for that match |
@@ -560,23 +566,27 @@ ClientPlugin/
                             GridRegistry, Replay (the re-entrancy flag)
   Ops/                      one file per op kind: BuildBlocks, RazeBlocks, RestoreBlocks,
                             MergeBack, Paint; GridOps holds PasteGrids, GroupSnapshot and
-                            CloseGrids. Later SetProperty, SetCustomName, SetGridName,
-                            SetProgram. Also BlockLinks (section 7), SplitWatch,
+                            CloseGrids; TerminalOps holds SetProperty, SetGridName and
+                            SetProgram, TerminalValues reads and writes control values
+                            as text. Also BlockLinks (section 7), SplitWatch,
                             PasteMatch (section 6), GameAccess (grid handles, builder
                             XML, placements). A paste into a grid replays as RestoreBlocks
-  Record/                   BuildContextPatches and GridContextPatches, the Recorder,
-                            the captures that settle over frames (RazeCapture,
-                            GridCaptures), PaintStroke
+  Record/                   BuildContextPatches, GridContextPatches and
+                            TerminalContextPatches, the Recorder, the captures that
+                            settle over frames (RazeCapture, GridCaptures), PaintStroke
+                            and TerminalStroke
   Apply/                    Executor, permission predicates
-  Input/                    key handlers for the three contexts, IsControl rewrite
-  Text/                     TextHistories, one history per text box; recording comes later
-  Storage/                  UndoDocument and its serializer, StatusFile; save and load
-                            hooks and the client side world file come later
+  Input/                    key handlers of the build and terminal contexts, IsControl
+                            rewrite
+  Text/                     TextHistory (snapshots, no game references) and
+                            TextHistories, the text box patches with one history per box
+  Storage/                  UndoDocument and its serializer, StatusFile, Gz; save and
+                            load hooks and the client side world file come later
   GridStore/                GridStoreFolder (entry files, index, hashing), StoredGroups
                             (the game side); retention cleanup later
   Gui/                      grid history screen, table, sort key list (later)
   Settings/                 template config dialog, plus a Note element for the option notes
-UndoTests/                  xunit tests of History, Storage and GridStoreFolder, compiled
+UndoTests/                  xunit tests of History, Storage, GridStoreFolder and TextHistory, compiled
                             from the plugin sources, no game needed (`dotnet test UndoTests`)
 tests/                      pytest suite and the isolated client rig, section 13
 ```
@@ -638,9 +648,9 @@ Coverage, one test per row, each followed by redo where it applies:
 | Clipboard delete | look at the grid, Ctrl-Delete, Yes in the confirmation box; this deletes the group | exactly one new node; undo brings the grid back under its id |
 | Paste into a grid then undo | look at the wall, Ctrl-C, Ctrl-V, aim at the wall so the preview snaps onto its face, left button as raw gameplay input (`/v1/input/state`; the GUI click endpoint does not reach the clipboard) | the 9 merged cells exist; undo removes only them, redo puts them back |
 | New grid from one block then undo | armor block into toolbar slot 1, `D1`, look into open air, left button | the new grid; undo removes it, redo brings it back under the same entity id |
-| Terminal property | open the terminal with the injected F key, `control/set` on a checkbox and a slider, also `property` set op with recording outside the terminal on | `property` get op |
-| Block name, grid name | terminal Name text box via `control/set`; grid name via the info tab | block detail, `grid` get op |
-| Text box | type into a search box via `input/type`, Ctrl-Z with the box focused | `properties.text` of the control |
+| Terminal property | open the turret controller's terminal with the injected F key, `control/set` on its target locking checkbox and, three times like a drag, on a slider; also the `property` set op with the terminal closed, undone after opening it | `property` get op, the checkbox control following the undo, one node for the three slider values |
+| Block name, grid name | terminal Name text box via `control/set`, twice, and the `custom_name` set op; grid name via the grid call `SetCustomName`, which sends the request the Info tab sends. Switching to the Info tab through the Remote API crashes the client (SE1-0071) | block detail, `grid` get op, one node per rename |
+| Text box | type two words into the terminal's block search box via `input/type`, with a pause longer than the coalescing window between them, then Ctrl-Z and Ctrl-Y with the box focused | `properties.text` of the control after each step; the terminal history unchanged |
 | Limits | 210 builds, expect 200 nodes in the status file and the oldest gone | status file |
 | Tree option | build twice, undo twice, build again, undo, redo | status file: the abandoned branch is kept next to the new one, redo follows the branch visited last; world state |
 | Displaced vanilla keys | leave the cryo chamber, plain Z to switch the character dampeners off, Ctrl-Y and Ctrl-Z, then Ctrl-Shift-Z | dampeners stay off under undo and redo, come on with Ctrl-Shift-Z and stay on |
@@ -660,6 +670,14 @@ option rows, plus two rows for the displaced vanilla keys and the terminal conte
 load. The grid tests need the Remote fixes of CometWorks/remote#28 in the Remote
 working copy the rig loads.
 
+The terminal and text rows followed on 2026-10-01 (`tests/test_terminal.py`): 21
+tests and one skipped, about 90 seconds per run. The game offers "use" only when the
+view ray passes a terminal detector of the block before it hits the model, so the
+turret controller, an open frame with its console inside, is turned to face the
+floor and the character looks at its screen from one cell away. The station also has
+a programmable block, turned the same way, and the world has scripts enabled. The PB
+row is a skipped test until SE1-0060; it was checked by hand, see section 16.
+
 Gaps that need Remote plugin work first, tracked in a separate ticket: no endpoint to
 read or write a PB program, no skin in block detail, painting only in one fixed color,
 no host lobby endpoint (so the friends host mode is a manual test until then).
@@ -677,13 +695,24 @@ no host lobby endpoint (so the friends host mode is a manual test until then).
 
 ## 15. Risks and open points
 
-- R1, closed generic patching. `MyTerminalValueControl<TBlock, TValue>.SetValue` must
-  be patched per closed type. Instantiations over reference types share JIT code, so
-  patching one may patch several; the patcher dedupes by `MethodBase.MethodHandle`
-  after `GetMethod` on each closed type and tolerates "already patched". Fallback if
-  this proves unreliable: subscribe to `Sync<T>.ValueChangedFromTo` on the properties
-  in `MySyncedBlock.SyncType` of the blocks shown in the terminal, and record at the
-  sync level with the property index instead of the control id.
+- R1, closed on 2026-10-01, confirmed in game on .NET 10 (Pulsar Interim, Linux).
+  `MyTerminalValueControl<TBlock, TValue>.SetValue` is patched per closed type, and
+  `TBlock` is always a reference type, so the runtime shares one method body among
+  all block types. `MethodBase.MethodHandle` is the same for every such
+  instantiation, which makes the dedupe by handle exact: a world with 89 terminal
+  block types and 1700 value controls ends up with 6 patched methods (the on/off
+  switch, checkbox, text box, combo box, color and slider classes), in about 20 ms.
+  The patch on one instantiation runs for all of them, with the real control as
+  `__instance` and the real block as the first argument; the hooks take both as
+  `object`. Controls a mod adds later use the same six classes and are covered
+  without another pass. `MyTerminalControlProperty<TBlock, TValue>` would add one
+  method per value type; the vanilla game registers none. The patcher runs at
+  every session start, because the factory forgets its controls on unload, and
+  skips handles it has patched. The `Sync<T>.ValueChangedFromTo` fallback was not
+  needed and is not implemented. Not run: the .NET Framework 4.8 build (Pulsar
+  Legacy on Windows). If handles differ per instantiation there, the same body
+  gets the hooks more than once; the depth counter of section 5 keeps that to one
+  recorded change per call.
 - R2, paste correlation on DS clients is a heuristic (section 6). Acceptable for the
   stated use case; the companion ticket removes it.
 - R3, `RazeBlocks` reverse in survival without creative rights only rebuilds skeleton
@@ -726,6 +755,25 @@ no host lobby endpoint (so the friends host mode is a manual test until then).
 8. Survival and DS client behavior, permission tests, tree option.
 9. Grid store retention and the grid history dialog. The store itself exists from
    step 4 because the paste and delete ops write into it.
+
+Status on 2026-10-01, later: steps 5 and 6 are done on the `impl-3-terminal` branch.
+Run in game, offline, by the test suite: a checkbox and a slider through the terminal
+UI, a property, a block name and a grid name set from outside with "record outside
+the terminal" on, the block name through the Name box, each with undo and redo, and
+typing in a text box with Ctrl-Z and Ctrl-Y. Checked by hand in a windowed client,
+driven through the Remote API with screenshots: three programs saved from the PB
+editor's OK button each made a node; Ctrl-Z in the terminal put the previous source
+back, and at the first node the editor showed the default template again, as for a
+block without a program; Ctrl-Y brought the last program back, and the saved world
+had it. The block had no power, so no program ran. Unit tested only: the text
+snapshot rules (coalescing, cap, caret) and the gzip helper. Not run: every client
+path (the grid name pending check, a program sent as a request), multi selection in
+the terminal (the per block ops are the same code as one block), the color, combo
+box, enum and `MyStringId` value types, the "save changes?" question of the PB
+editor, the refusals of section 2, and the .NET Framework build. Open for the
+multiplayer step: on a hosting server `ProgramData` recompiles without telling the
+clients, whose copies of the source go stale; raising the update request there
+would broadcast it.
 
 Status on 2026-10-01: step 4 and the store part of step 9 are done on the
 `impl-2-grids` branch. Run in game, offline: paste, delete through the clipboard,
