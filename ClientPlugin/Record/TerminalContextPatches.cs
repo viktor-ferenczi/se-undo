@@ -29,13 +29,38 @@ public static class TerminalContextPatches
         new HashSet<RuntimeMethodHandle>();
 
     // Patches MyTerminalValueControl<TBlock, TValue>.SetValue and its overrides for
-    // the controls of every terminal block type. The controls of a type exist only
-    // once CreateTerminalControls ran, and the factory forgets them when a session
-    // unloads, so this runs at every session start; it patches each method once.
+    // the controls of every terminal block type that has them. The game creates the
+    // controls of a type with its first block, and the factory forgets them when a
+    // session unloads, so this runs at every session start, after grids arrived, after
+    // a build and when the terminal opens (ControlsMayHaveChanged); a multiplayer
+    // client starts with no grids at all. It patches each method once.
+    // A type without controls is left alone: asking the factory for its controls
+    // registers an empty list, and the game then never creates the real ones.
     // On .NET 10 all instantiations over reference types share one method handle,
     // so one patch per control class covers every block type, modded ones included.
+    private static bool controlsChanged;
+    private static DateTime lastPatchUtc;
+
+    public static void ControlsMayHaveChanged() => controlsChanged = true;
+
+    // Every frame; scans at most once a second, and only after something changed
+    public static void Update()
+    {
+        if (!controlsChanged || (DateTime.UtcNow - lastPatchUtc).TotalSeconds < 1)
+            return;
+        PatchControls();
+    }
+
+    [HarmonyPatch(typeof(MyGuiScreenTerminal), nameof(MyGuiScreenTerminal.Show))]
+    private static class TerminalShowPatch
+    {
+        private static void Postfix() => ControlsMayHaveChanged();
+    }
+
     public static void PatchControls()
     {
+        controlsChanged = false;
+        lastPatchUtc = DateTime.UtcNow;
         var watch = Stopwatch.StartNew();
         var harmony = new Harmony(Plugin.Name);
         var prefix = new HarmonyMethod(typeof(SetValuePatch), nameof(SetValuePatch.Prefix));
@@ -56,7 +81,8 @@ public static class TerminalContextPatches
         {
             try
             {
-                MyTerminalControlFactory.EnsureControlsAreCreated(blockType);
+                if (!MyTerminalControlFactory.AreControlsCreated(blockType))
+                    continue;
                 foreach (var control in MyTerminalControlFactory.GetControls(blockType))
                 {
                     var accessor = TerminalValues.AccessorOf(control);
@@ -84,10 +110,13 @@ public static class TerminalContextPatches
                 Log.Warning($"Patching the terminal controls of {blockType.Name} failed: {e}");
             }
         }
-        Log.Info(
+        var message =
             $"Terminal controls: {blockTypes.Count} block types, {controls} value controls, "
-                + $"{patched} methods patched in {watch.ElapsedMilliseconds} ms"
-        );
+            + $"{patched} methods patched in {watch.ElapsedMilliseconds} ms";
+        if (patched != 0)
+            Log.Info(message);
+        else
+            Log.Debug(message);
     }
 
     private static class SetValuePatch

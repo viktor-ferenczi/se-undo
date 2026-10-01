@@ -10,7 +10,8 @@ namespace ClientPlugin.Ops;
 
 // A client learns nothing about the grids its paste request created, design section
 // 6. New grids are matched to the expected ones by name, block count and position
-// while the match window lasts. ponytail: a heuristic, a server companion could
+// while the match window lasts. A grid may arrive with fewer blocks than asked for:
+// the server strips blocks whose DLC or skin the player lacks. ponytail: a heuristic, a server companion could
 // report the created ids instead.
 public sealed class PasteMatch
 {
@@ -83,7 +84,7 @@ public sealed class PasteMatch
                 if (
                     match.Grids[i] == null
                     && (e.Name == null || e.Name == grid.DisplayName)
-                    && e.Blocks == grid.BlocksCount
+                    && grid.BlocksCount <= e.Blocks
                     && Vector3D.Distance(e.Position, grid.PositionComp.GetPosition()) <= tolerance
                 )
                 {

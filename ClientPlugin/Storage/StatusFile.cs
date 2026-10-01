@@ -14,11 +14,13 @@ public static class StatusFile
         IEnumerable<KeyValuePair<string, UndoHistory>> histories,
         string lastMessage,
         int documentBytes,
-        string extraJson = null
+        string extraJson = null,
+        string mode = null
     )
     {
         var sb = new StringBuilder();
-        sb.Append("{\"histories\":{");
+        sb.Append("{\"mode\":").Append(Quote(mode));
+        sb.Append(",\"histories\":{");
         var first = true;
         foreach (var pair in histories)
         {

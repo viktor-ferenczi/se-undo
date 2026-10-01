@@ -10,6 +10,8 @@ dependencies = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The dedicated server tests run on their own: uv run pytest tests/ds
+norecursedirs = ["ds"]
 
 [tool.uv]
 package = false

@@ -109,8 +109,17 @@ public class SetProgramOp : Op
 
     public override Func<bool> Apply(GridRegistry grids)
     {
-        var block = (Sandbox.ModAPI.IMyProgrammableBlock)Block.Resolve(grids);
-        block.ProgramData = Gz.Decompress(Source);
+        var block = (MyProgrammableBlock)Block.Resolve(grids);
+        var source = Gz.Decompress(Source);
+
+        // The setter recompiles on a server without telling the clients. A host sends
+        // the editor's request instead, which runs here and is broadcast.
+        // ponytail: a block going back to no program at all stays stale on the
+        // joined clients, the request cannot carry "no program"
+        if (source != null && Permissions.Mode == SessionMode.LobbyHost)
+            block.SendUpdateProgramRequest(source);
+        else
+            ((Sandbox.ModAPI.IMyProgrammableBlock)block).ProgramData = source;
         return null;
     }
 }

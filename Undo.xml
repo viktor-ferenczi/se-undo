@@ -31,6 +31,6 @@ Please consider supporting my work on Patreon: https://www.patreon.com/semods
     <Directory>ClientPlugin</Directory>
   </SourceDirectories>
 
-  <Commit>TODO</Commit>
+  <Commit>122c7294793bcaaa30fa87d17c9c117f86c4eb15</Commit>
 
 </PluginData>

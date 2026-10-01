@@ -173,6 +173,8 @@ public static class Recorder
         if (built.Count == 0)
             return;
 
+        // The first block of a type brings its terminal controls
+        TerminalContextPatches.ControlsMayHaveChanged();
         var handle = Handle(grid);
         Commit(
             $"placed {Plural(built.Count, "block")}",

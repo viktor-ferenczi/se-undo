@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import rig
-from conftest import wait_until
+from harness import wait_until
 
 FILE = "Undo.xml.gz"
 SAVE_AS = "UndoSaveAsTest"
@@ -45,14 +45,20 @@ def save(game, name: str | None = None) -> Path:
         "the history file in the save",
         timeout=60,
     )
-    # The backup is the last step of a save
+    # The backup is the last step of a save. It is copied file by file, so the
+    # history file being there does not mean the voxel files are.
     wait_until(
         lambda: (newest_backup(folder) / FILE).exists()
-        and (newest_backup(folder) / FILE).read_bytes() == target.read_bytes(),
+        and (newest_backup(folder) / FILE).read_bytes() == target.read_bytes()
+        and top_level_files(newest_backup(folder)) == top_level_files(folder),
         "the backup of the save",
         timeout=60,
     )
     return folder
+
+
+def top_level_files(folder: Path) -> dict[str, int]:
+    return {p.name: p.stat().st_size for p in folder.iterdir() if p.is_file()}
 
 
 def newest_backup(folder: Path = rig.WORLD) -> Path:

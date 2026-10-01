@@ -2,7 +2,8 @@
 
 Pytest suite driven through the [Remote plugin](../../remote). It runs on an
 isolated headless client, so it never touches the game you play with, and it can
-run while other test clients are up.
+run while other test clients are up. This file is about the offline rig; the
+dedicated server rig under `ds/` is described in [Docs/TESTING.md](../Docs/TESTING.md).
 
 ## One time setup
 
@@ -11,8 +12,8 @@ imports its Python client and copies its Earth test world. The game's own
 `~/.config/SpaceEngineers/SpaceEngineers.cfg` seeds the client's config on the first
 run, with experimental mode switched on.
 The grid tests need two Remote fixes from CometWorks/remote#28 (`grid_close` through
-the player's close request, the target endpoint naming armor blocks); until it is
-merged, check out its `fixes` branch there.
+the player's close request, the target endpoint naming armor blocks), which are on
+its main branch.
 
 A Pulsar folder of its own, with only the Remote and Undo dev folders enabled:
 
@@ -50,9 +51,14 @@ client, and stops that client at the end.
 The files run in name order and share the world. `test_grid_store.py` needs the
 1 MB budget and raises it to 64 MB in its oversized backup test, so on a client
 reused with `UNDO_ATTACH=1` its first two tests skip. `test_world_save.py` comes
-last: it reloads the world, saves it as `UndoSaveAsTest`, leaves the session
-through the title menu to copy a world as `UndoMenuCopyTest` there, and ends in a
-backup restored through the game's Backups screen.
+last of the tests in that world: it reloads the world, saves it as `UndoSaveAsTest`,
+leaves the session through the title menu to copy a world as `UndoMenuCopyTest`
+there, and ends in a backup restored through the game's Backups screen.
+`test_z_survival.py` then loads `UndoTestSurvival`, the same world in survival, for
+the permission tests.
+
+`rig.py` prepares the worlds and runs the client, `harness.py` has what the tests
+use to look at the game and at the plugin's status file.
 
 `UNDO_KEEP=1` leaves the client running, `UNDO_ATTACH=1` reuses it on the next
 run. `UNDO_WINDOWED=1` starts it with a real window, for checks done by hand. The plugin writes `~/.se-test/undo-data/Undo/status.json` after every history

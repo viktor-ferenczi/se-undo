@@ -15,6 +15,13 @@ Vanilla binds Ctrl-Z to relative dampeners and Ctrl-Y to toggling all reactors. 
 this plugin is enabled those move to Ctrl-Shift-Z and Ctrl-Shift-Y. All four bindings,
 the history limits and the storage locations are in the plugin settings.
 
+In survival, undo and redo only do what you could do by hand: place blocks as
+construction sites from your inventory, paint, change terminal settings, names and
+programs. Removing blocks, restoring them complete, pasting and deleting grids need
+creative tools. On a dedicated server the plugin works client side only; a block or
+grid it restores there gets new ids, so toolbar slots and groups that pointed at it
+from outside have to be set again.
+
 Design: [Docs/DESIGN.md](Docs/DESIGN.md). It records what the plugin hooks, how undo is
 replayed through the game's own requests so multiplayer stays in sync, and what is
 allowed in survival.
@@ -26,5 +33,5 @@ Run `setup.py` once to detect the game folder, then build the solution. Each bui
 into Pulsar's `Local` plugin folder, see the template's README for the details.
 
 Tests: `dotnet test UndoTests` runs the history, storage and grid store unit tests
-without the game. The in game suite under `tests/` runs on an isolated headless
-client, see [tests/README.md](tests/README.md).
+without the game. The in game suites under `tests/` run on an isolated headless
+client, offline and joined to a dedicated server, see [Docs/TESTING.md](Docs/TESTING.md).

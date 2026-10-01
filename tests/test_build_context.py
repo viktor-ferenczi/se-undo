@@ -9,7 +9,8 @@ from __future__ import annotations
 import time
 
 import rig
-from conftest import wait_until
+from harness import wait_until
+from harness import links
 from se_remote import CallOp
 
 
@@ -97,31 +98,10 @@ def test_raze_then_undo_keeps_the_block_detail(game):
     assert game.block(cell)["entityId"] == before["entityId"]
 
 
-def _links(station) -> dict:
-    """Where the station's blocks point at the target light, from a saved sector"""
-    target = str(rig.IDS[rig.TARGET])
-    slots = [e.text for e in station.iter("BlockEntityId")]
-    tools = [e.text for e in station.iter("ToolIds") for e in e]
-    selected = [e.text for e in station.iter("SelectedBlocks") for e in e]
-    groups = {
-        g.findtext("Name"): {
-            (int(v.findtext("X")), int(v.findtext("Y")), int(v.findtext("Z")))
-            for v in g.iter("Vector3I")
-        }
-        for g in station.iter("MyObjectBuilder_BlockGroup")
-    }
-    return {
-        "toolbar": target in slots,
-        "turret": target in tools,
-        "event": target in selected,
-        "group": rig.TARGET in groups.get(rig.GROUP_NAME, set()),
-    }
-
-
 def test_raze_a_referenced_block_then_undo(game):
     cell = rig.TARGET
     target_id = rig.IDS[cell]
-    assert _links(game.saved_station()) == dict.fromkeys(
+    assert links(game.saved_station()) == dict.fromkeys(
         ("toolbar", "turret", "event", "group"), True
     )
     last = game.last_node_id()
@@ -131,7 +111,7 @@ def test_raze_a_referenced_block_then_undo(game):
     game.wait_recorded(last, "removed 1 block")
 
     # The block group and the event controller drop the block when it closes
-    razed = _links(game.saved_station())
+    razed = links(game.saved_station())
     assert not razed["group"] and not razed["event"]
 
     game.undo()
@@ -141,7 +121,7 @@ def test_raze_a_referenced_block_then_undo(game):
     assert restored["customName"] == rig.TARGET_NAME
     # Give the event controller its 10 frame update before saving
     time.sleep(1)
-    assert _links(game.saved_station()) == dict.fromkeys(
+    assert links(game.saved_station()) == dict.fromkeys(
         ("toolbar", "turret", "event", "group"), True
     )
 

@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 import rig
-from conftest import wait_until
+from harness import wait_until
 from test_grid_ops import click, on_the_station  # noqa: F401 -- autouse fixture
 
 MB = 1024 * 1024

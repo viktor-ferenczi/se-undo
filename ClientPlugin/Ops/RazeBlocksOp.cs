@@ -36,7 +36,7 @@ public class RazeBlocksOp : Op
     {
         if (grids.ResolveGrid(Grid) == null)
             return GameAccess.GridMissing;
-        return Permissions.CanRemoveBlocks ? null : Permissions.NeedsCreativeTools;
+        return Permissions.Creative ? null : Permissions.NeedsCreativeTools;
     }
 
     public override Func<bool> Apply(GridRegistry grids)

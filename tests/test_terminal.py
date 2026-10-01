@@ -18,7 +18,8 @@ from contextlib import contextmanager
 import pytest
 
 import rig
-from conftest import wait_until
+from harness import wait_until
+from se_remote import GetOp
 
 BLOCK = rig.TURRET_CONTROLLER
 BLOCK_NAME = "Undo Turret Controller"
@@ -296,6 +297,25 @@ def test_text_box_typing_then_undo(game):
         wait_until(lambda: not focus_is_text(api), "the focus to leave the box")
         assert game.undo(expect=None).startswith(("Undo: ", "Nothing to undo"))
         assert text() == "turret c"
+
+
+def test_a_block_type_new_to_the_world_has_its_controls(game):
+    """The game creates the terminal controls of a block type with its first block.
+    Asking the control factory about a type before that leaves it with an empty
+    list for the rest of the session, so the plugin must not."""
+    api, cell = game.api, rig.BUILD_CELL
+    rig.focus_gameplay(api)
+    last = game.last_node_id()
+    assert api.character_build_block(game.station, cell, subtype="LargeWarhead")["sent"]
+    wait_until(lambda: game.exists(cell), "the warhead")
+    game.wait_recorded(last, "placed 1 block")
+    try:
+        result = api.batch(gets=[GetOp.properties(game.station, cell)])
+        names = {p["id"] for p in result.get(0)}
+        assert "DetonationTime" in names, names
+    finally:
+        game.undo()
+        wait_until(lambda: not game.exists(cell), "the warhead to go")
 
 
 @pytest.mark.skip(
