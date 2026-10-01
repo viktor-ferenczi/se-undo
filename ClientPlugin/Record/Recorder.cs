@@ -163,7 +163,11 @@ public static class Recorder
             },
             new List<Op> { new CloseGridsOp { Grids = handles } }
         );
-        node.ReferenceLost = referenceLost;
+        if (referenceLost)
+        {
+            node.ReferenceLost = true;
+            UndoSession.Changed();
+        }
     }
 
     public static void ExpectMerge(MyCubeGrid grid) =>

@@ -119,6 +119,8 @@ public static class GridContextPatches
 
     // Paste into an existing grid. A local server merges inside the request, so the
     // new blocks are there by the postfix. A client waits for the server's broadcast.
+    // ponytail: the game merges only the first clipboard grid and adds the others as
+    // grids of their own, which are not recorded; a rare clipboard shape
     [HarmonyPatch(typeof(MyCubeGrid), nameof(MyCubeGrid.PasteBlocksToGrid))]
     private static class PasteBlocksToGridPatch
     {
