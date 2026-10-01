@@ -2,10 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using ClientPlugin.Apply;
+using ClientPlugin.GridStore;
 using ClientPlugin.History;
 using ClientPlugin.Ops;
 using ClientPlugin.Record;
 using ClientPlugin.Storage;
+using Sandbox.Game.Entities;
 using VRage.FileSystem;
 using VRage.Game.Components;
 
@@ -20,6 +22,10 @@ public class UndoSession : MySessionComponentBase
     public static string LastMessage;
 
     private static UndoDocumentSerializer serializer;
+    private static GridStoreFolder store;
+
+    // Opened on first use, when the session knows its world and server
+    public static GridStoreFolder Store => store ??= new GridStoreFolder(StoredGroups.Folder());
 
     public static string StorageRoot
     {
@@ -36,14 +42,19 @@ public class UndoSession : MySessionComponentBase
     {
         Document = new UndoDocument();
         LastMessage = null;
+        store = null;
+        MyEntities.OnEntityAdd += PasteMatch.OnEntityAdd;
         Configure();
         Changed();
     }
 
     protected override void UnloadData()
     {
+        MyEntities.OnEntityAdd -= PasteMatch.OnEntityAdd;
+        PasteMatch.Reset();
         Recorder.Reset();
         Document = null;
+        store = null;
     }
 
     // Applies the history limits of the config, also called when the config changes

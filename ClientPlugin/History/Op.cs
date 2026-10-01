@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace ClientPlugin.History;
 
@@ -12,4 +14,10 @@ public abstract class Op
     // Applies the op. Returns null when it completed synchronously, otherwise a check
     // that turns true once the asynchronous rest (a grid split, a server broadcast) is done.
     public abstract Func<bool> Apply(GridRegistry grids);
+
+    // Existing grids the op changes, for the group snapshot taken before a client replay
+    public virtual IEnumerable<int> GridHandles() => Enumerable.Empty<int>();
+
+    // Grid store entries the op reads
+    public virtual IEnumerable<string> StoreRefs() => Enumerable.Empty<string>();
 }

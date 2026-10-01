@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using ClientPlugin.History;
@@ -32,6 +33,22 @@ public static class GameAccess
     public static long LocalCharacterId => MySession.Static.LocalCharacterEntityId;
 
     public static long LocalIdentityId => MySession.Static.LocalPlayerId;
+
+    // Blocks at their positions in the grid, in a grid builder placed like the grid
+    public static MyObjectBuilder_CubeGrid BlocksBuilder(
+        MyCubeGrid grid,
+        List<MyObjectBuilder_CubeBlock> blocks
+    )
+    {
+        var builder = (MyObjectBuilder_CubeGrid)
+            MyObjectBuilderSerializerKeen.CreateNewObject(typeof(MyObjectBuilder_CubeGrid));
+        builder.DisplayName = grid.DisplayName;
+        builder.GridSizeEnum = grid.GridSizeEnum;
+        builder.IsStatic = grid.IsStatic;
+        builder.PositionAndOrientation = new MyPositionAndOrientation(grid.WorldMatrix);
+        builder.CubeBlocks = blocks;
+        return builder;
+    }
 
     // A cube block of the grid whose min corner is exactly this position
     public static MySlimBlock BlockAt(this MyCubeGrid grid, Vector3I min)

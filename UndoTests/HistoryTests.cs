@@ -195,6 +195,43 @@ public class HistoryTests
     }
 
     [Fact]
+    public void ReportedFailureEndsThePendingOpAtOnce()
+    {
+        var history = new UndoHistory();
+        var node = Record(history, "a");
+        history.Pending = new PendingOp
+        {
+            Node = node,
+            IsDone = () => false,
+            DeadlineUtc = Now.AddSeconds(5),
+        };
+
+        history.FailPending();
+        var finished = history.PollPending(Now);
+        Assert.True(finished.TimedOut);
+        Assert.True(node.UnknownResult);
+        Assert.False(history.IsLocked);
+    }
+
+    [Fact]
+    public void RecordListsTheStoreEntriesOfItsOps()
+    {
+        var history = new UndoHistory();
+        var node = history.Record(
+            "deleted",
+            new List<Op> { new FakeOp { Name = "close" } },
+            new List<Op>
+            {
+                new FakeSnapshotOp { Entry = "abc" },
+                new FakeSnapshotOp { Entry = "abc" },
+                new FakeSnapshotOp { Entry = "def" },
+            },
+            Now
+        );
+        Assert.Equal(new[] { "abc", "def" }, node.StoreRefs);
+    }
+
+    [Fact]
     public void ReplayFlagIsScoped()
     {
         Assert.False(Replay.Active);

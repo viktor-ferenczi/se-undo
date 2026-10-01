@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using ClientPlugin.History;
+using ClientPlugin.Ops;
 using ClientPlugin.Record;
+using Sandbox.Game.Multiplayer;
 
 namespace ClientPlugin.Apply;
 
@@ -34,13 +36,26 @@ public static class Executor
             return;
         }
 
-        if (node.UnknownResult)
+        if (node.ReferenceLost)
+        {
+            Notify.Show($"{verb} not available: the grids of {node.Label} could not be identified");
+            return;
+        }
+
+        // A replay that ended with an unknown result is not repeated. Its snapshot
+        // puts the grids back the way they were before it, which is the state this
+        // step leads to, since the step goes the other way across the node.
+        var viaSnapshot = node.UnknownResult;
+        if (viaSnapshot && node.Snapshot == null)
         {
             Notify.Show($"{verb} not available: the result of {node.Label} is unknown");
             return;
         }
 
-        var ops = undo ? Enumerable.Reverse(node.Reverse).ToList() : node.Forward;
+        var ops =
+            viaSnapshot ? new List<Op> { node.Snapshot }
+            : undo ? Enumerable.Reverse(node.Reverse).ToList()
+            : node.Forward;
         foreach (var op in ops)
         {
             var reason = op.Validate(grids);
@@ -51,9 +66,15 @@ public static class Executor
             }
         }
 
+        // ponytail: the snapshot is taken before every client replay that touches existing
+        // grids, cheap for a ship, costly for a large station
+        Func<Op> saveSnapshot = null;
         var checks = new List<Func<bool>>();
         try
         {
+            if (!Sync.IsServer && !viaSnapshot)
+                saveSnapshot = GroupSnapshotOp.Prepare(ops, grids);
+
             using (Replay.Begin())
             {
                 foreach (var op in ops)
@@ -77,6 +98,7 @@ public static class Executor
         else
             history.MarkRedone(node);
 
+        node.UnknownResult = false;
         if (checks.Count != 0)
         {
             history.Pending = new PendingOp
@@ -85,8 +107,12 @@ public static class Executor
                 IsUndo = undo,
                 IsDone = () => checks.All(check => check()),
                 DeadlineUtc = DateTime.UtcNow.AddSeconds(Config.Current.PendingOperationTimeoutS),
+                ViaSnapshot = viaSnapshot,
+                SaveSnapshot = saveSnapshot,
             };
         }
+        else if (viaSnapshot)
+            DropSnapshot(node);
 
         Notify.Show($"{verb}: {node.Label}");
     }
@@ -97,11 +123,43 @@ public static class Executor
         if (finished == null)
             return;
 
-        if (finished.TimedOut)
-            Notify.Show(
-                $"{(finished.IsUndo ? "Undo" : "Redo")} of {finished.Node.Label}: result unknown"
-            );
-        else
+        var node = finished.Node;
+        if (!finished.TimedOut)
+        {
+            if (finished.ViaSnapshot)
+                DropSnapshot(node);
             Session.UndoSession.Changed();
+            return;
+        }
+
+        // A failed snapshot restore keeps its snapshot for the next try
+        if (finished.SaveSnapshot != null)
+        {
+            try
+            {
+                node.Snapshot = finished.SaveSnapshot();
+                node.StoreRefs.AddRange(node.Snapshot.StoreRefs());
+            }
+            catch (Exception e)
+            {
+                Log.Error($"Saving the group snapshot of {node.Label} failed: {e}");
+            }
+        }
+        Notify.Show($"{(finished.IsUndo ? "Undo" : "Redo")} of {node.Label}: result unknown");
+    }
+
+    private static void DropSnapshot(Node node)
+    {
+        foreach (var id in node.Snapshot.StoreRefs())
+            node.StoreRefs.Remove(id);
+        node.Snapshot = null;
+    }
+
+    // A failure notification of the server; only matters while a replay is pending
+    public static void OnServerFailure()
+    {
+        var document = Session.UndoSession.Document;
+        document?.Build.FailPending();
+        document?.Terminal.FailPending();
     }
 }

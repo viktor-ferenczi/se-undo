@@ -25,6 +25,6 @@ Based on the [client plugin template](https://github.com/CometWorks/client-plugi
 Run `setup.py` once to detect the game folder, then build the solution. Each build deploys
 into Pulsar's `Local` plugin folder, see the template's README for the details.
 
-Tests: `dotnet test UndoTests` runs the history and storage unit tests without the
-game. The in game suite under `tests/` runs on an isolated headless client, see
-[tests/README.md](tests/README.md).
+Tests: `dotnet test UndoTests` runs the history, storage and grid store unit tests
+without the game. The in game suite under `tests/` runs on an isolated headless
+client, see [tests/README.md](tests/README.md).

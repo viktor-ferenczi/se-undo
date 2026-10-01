@@ -1,26 +1,29 @@
 using System.Collections.Generic;
 using System.Linq;
+using ClientPlugin.GridStore;
 using ClientPlugin.History;
 using ClientPlugin.Ops;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Cube;
 using Sandbox.Game.Multiplayer;
-using VRage;
 using VRage.Game;
-using VRage.ObjectBuilders.Private;
 using VRageMath;
 
 namespace ClientPlugin.Record;
 
 // Everything needed to put removed blocks back, taken before the removal request:
 // the block builders, their links to other blocks, and the grids split off afterwards
-public sealed class RazeCapture
+public sealed class RazeCapture : ICapture
 {
     private MyCubeGrid grid;
     private List<MySlimBlock> blocks;
     private List<MyObjectBuilder_CubeBlock> builders;
     private List<BlockLinks> links;
-    public SplitWatch Watch { get; private set; }
+    private SplitWatch watch;
+
+    public bool Settled => watch.Settled;
+
+    public void Abort() => watch.Close();
 
     public static RazeCapture Begin(MyCubeGrid grid, IEnumerable<Vector3I> positions)
     {
@@ -39,7 +42,7 @@ public sealed class RazeCapture
             // Not the copy variant: the block comes back as itself, entity name included
             builders = blocks.Select(b => b.GetObjectBuilder()).ToList(),
             links = BlockLinks.Capture(grid, blocks),
-            Watch = new SplitWatch(grid),
+            watch = new SplitWatch(grid),
         };
     }
 
@@ -47,7 +50,7 @@ public sealed class RazeCapture
     // that back is the grid paste op's job, so such a removal is not recorded here.
     public void Finish()
     {
-        var pieces = Watch.Close();
+        var pieces = watch.Close();
         var removed = Enumerable
             .Range(0, blocks.Count)
             .Where(i => grid.GetCubeBlock(blocks[i].Min) != blocks[i])
@@ -55,13 +58,7 @@ public sealed class RazeCapture
         if (removed.Count == 0 || grid.MarkedForClose)
             return;
 
-        var saved = (MyObjectBuilder_CubeGrid)
-            MyObjectBuilderSerializerKeen.CreateNewObject(typeof(MyObjectBuilder_CubeGrid));
-        saved.DisplayName = grid.DisplayName;
-        saved.GridSizeEnum = grid.GridSizeEnum;
-        saved.IsStatic = grid.IsStatic;
-        saved.PositionAndOrientation = new MyPositionAndOrientation(grid.WorldMatrix);
-        saved.CubeBlocks = removed.Select(i => builders[i]).ToList();
+        var saved = GameAccess.BlocksBuilder(grid, removed.Select(i => builders[i]).ToList());
 
         var removedIds = new HashSet<long>(removed.Select(i => builders[i].EntityId));
         var handle = Recorder.Handle(grid);
@@ -70,7 +67,11 @@ public sealed class RazeCapture
             {
                 Grid = Recorder.Handle(piece),
                 Key = piece.CubeBlocks.First().Min,
-                BuilderXml = Sync.IsServer ? null : BuilderXml.Write(piece.GetObjectBuilder()),
+                Entry = Sync.IsServer
+                    ? null
+                    : StoredGroups
+                        .Save(StoredGroups.Capture(new[] { piece }), StoreReason.Split)
+                        .Id,
             })
             .ToList();
 

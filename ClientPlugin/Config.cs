@@ -263,7 +263,9 @@ public class Config : INotifyPropertyChanged
         set => SetField(ref pasteMatchPositionToleranceM, value);
     }
 
-    [Dropdown(description: "Grid connections followed when a grid group is captured")]
+    [Dropdown(
+        description: "Grid connections followed by the backup taken before an undo or redo on a server"
+    )]
     public GridLinkTypeEnum GroupLinkTypeForSnapshots
     {
         get => groupLinkTypeForSnapshots;

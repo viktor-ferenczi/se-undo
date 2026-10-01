@@ -46,12 +46,14 @@ public static class StatusFile
                 nodes.Select(n =>
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "{{\"id\":{0},\"parent\":{1},\"children\":[{2}],\"label\":{3},\"unknown\":{4}}}",
+                        "{{\"id\":{0},\"parent\":{1},\"children\":[{2}],\"label\":{3},\"unknown\":{4},\"referenceLost\":{5},\"storeRefs\":[{6}]}}",
                         n.Id,
                         n.ParentId,
                         string.Join(",", n.ChildIds),
                         Quote(n.Label),
-                        n.UnknownResult ? "true" : "false"
+                        n.UnknownResult ? "true" : "false",
+                        n.ReferenceLost ? "true" : "false",
+                        string.Join(",", n.StoreRefs.Select(Quote))
                     )
                 )
             )
