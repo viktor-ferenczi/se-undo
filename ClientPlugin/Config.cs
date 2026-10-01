@@ -216,7 +216,7 @@ public class Config : INotifyPropertyChanged
         5000f,
         100f,
         SliderAttribute.SliderType.Integer,
-        description: "Typing pauses shorter than this stay in one text snapshot"
+        description: "Typing pauses shorter than this stay in one text snapshot; terminal changes of one control within it become one undo step"
     )]
     public int TextCoalescingWindowMs
     {
