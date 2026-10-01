@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 
 import rig
-from conftest import wait_until
+from harness import wait_until
 from harness import links
 from se_remote import CallOp
 

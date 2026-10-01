@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import rig
-from conftest import wait_until
+from harness import wait_until
 
 FILE = "Undo.xml.gz"
 SAVE_AS = "UndoSaveAsTest"

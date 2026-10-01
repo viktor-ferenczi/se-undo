@@ -29,11 +29,13 @@ public static class TerminalContextPatches
         new HashSet<RuntimeMethodHandle>();
 
     // Patches MyTerminalValueControl<TBlock, TValue>.SetValue and its overrides for
-    // the controls of every terminal block type. The controls of a type exist only
-    // once a block of that type was created, and the factory forgets them when a
-    // session unloads, so this runs at every session start; it patches each method
-    // once. A multiplayer client starts with no grids and no controls, so it also
-    // runs after grids arrived and when the terminal opens, see ControlsMayHaveChanged.
+    // the controls of every terminal block type that has them. The game creates the
+    // controls of a type with its first block, and the factory forgets them when a
+    // session unloads, so this runs at every session start, after grids arrived, after
+    // a build and when the terminal opens (ControlsMayHaveChanged); a multiplayer
+    // client starts with no grids at all. It patches each method once.
+    // A type without controls is left alone: asking the factory for its controls
+    // registers an empty list, and the game then never creates the real ones.
     // On .NET 10 all instantiations over reference types share one method handle,
     // so one patch per control class covers every block type, modded ones included.
     private static bool controlsChanged;
@@ -79,7 +81,8 @@ public static class TerminalContextPatches
         {
             try
             {
-                MyTerminalControlFactory.EnsureControlsAreCreated(blockType);
+                if (!MyTerminalControlFactory.AreControlsCreated(blockType))
+                    continue;
                 foreach (var control in MyTerminalControlFactory.GetControls(blockType))
                 {
                     var accessor = TerminalValues.AccessorOf(control);

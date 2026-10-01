@@ -11,7 +11,7 @@ import os
 import pytest
 
 import rig
-from harness import Game, wait_until  # noqa: F401 -- the tests import them from here
+from harness import Game
 
 
 @pytest.fixture(scope="session")

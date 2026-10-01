@@ -16,6 +16,7 @@ import pytest
 
 import ds_rig
 import rig
+import test_terminal as tt
 from harness import Game, links, station_element, wait_until
 
 PASTED = f"pasted {ds_rig.SOURCE_NAME}"
@@ -115,6 +116,42 @@ def test_a_client_restore_loses_links_across_the_boundary(game):
     after = game.block(cell)
     assert after["customName"] == before["customName"] == rig.TARGET_NAME
     assert after["entityId"] != before["entityId"]
+
+
+def test_terminal_changes_on_a_client(game):
+    """The terminal controls of a client exist only once its grids arrived; the
+    plugin's hooks have to be there by then, and the values sync through the server"""
+    api = game.api
+    target = rig.station_point(tt.STAND)
+    api.character_teleport(*target)
+    wait_until(
+        lambda: math.dist(api.get_character()["position"], target) < 1.5,
+        "the teleport in front of the turret controller",
+    )
+
+    def name():
+        return game.block(tt.BLOCK)["customName"]
+
+    label = f"changed {tt.CHECKBOX} of {tt.BLOCK_NAME}"
+    before = tt.prop(game, tt.CHECKBOX)
+    last = game.last_node_id("terminal")
+    api.set_property(game.station, tt.BLOCK, tt.CHECKBOX, not before)
+    tt.recorded(game, last, label)
+
+    rename = f"renamed block {tt.BLOCK_NAME} to Renamed On Server"
+    api.set_custom_name(game.station, tt.BLOCK, "Renamed On Server")
+    tt.recorded(game, last + 1, rename)
+
+    # The Info tab cannot be driven on a server client (SE1-0075), so the grid name
+    # is not part of this
+    with tt.terminal(game):
+        assert game.undo() == f"Undo: {rename}"
+        wait_until(lambda: name() == tt.BLOCK_NAME, "the old name")
+        assert game.undo() == f"Undo: {label}"
+        wait_until(lambda: tt.prop(game, tt.CHECKBOX) is before, "the old value")
+        assert game.redo() == f"Redo: {label}"
+        wait_until(lambda: tt.prop(game, tt.CHECKBOX) is (not before), "the new value")
+        game.undo()
 
 
 def test_history_is_stored_per_server_player_and_world(game):

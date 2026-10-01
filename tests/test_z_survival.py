@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 import rig
-from conftest import Game, wait_until
+from harness import Game, wait_until
 
 NEEDS_TOOLS = "Undo not available: needs creative tools"
 

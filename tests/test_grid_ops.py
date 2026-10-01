@@ -16,7 +16,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 import rig
-from conftest import wait_until
+from harness import wait_until
 from se_remote import CallOp
 
 PASTE_NAME = "Undo Paste Test"
