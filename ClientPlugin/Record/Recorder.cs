@@ -43,14 +43,22 @@ public static class Recorder
         && Thread.CurrentThread == MySandboxGame.Static.UpdateThread;
 
     // A removal waits a frame or two for grid splits, a paste for its grids, before
-    // it becomes a node
-    public static bool IsBusy => settling.Count != 0;
+    // it becomes a node; so does a backup over the budget for the player's answer
+    public static bool IsBusy => settling.Count != 0 || held != 0;
+
+    private static int held;
+
+    public static void Hold() => held++;
+
+    // Not below zero: an answer can arrive after the session and its holds are gone
+    public static void Release() => held = Math.Max(0, held - 1);
 
     public static void Reset()
     {
         foreach (var capture in settling)
             capture.Abort();
         settling.Clear();
+        held = 0;
         expectedMerges.Clear();
         stroke = null;
         terminalStroke = null;
@@ -116,6 +124,17 @@ public static class Recorder
         Log.Debug($"Recorded: {label}");
         UndoSession.Changed();
         return node;
+    }
+
+    // In place of an action whose grid backup was dropped, design section 9
+    public static void CommitBarrier(string label)
+    {
+        if (UndoSession.Document == null)
+            return;
+
+        UndoSession.Document.Build.RecordBarrier(label, DateTime.UtcNow);
+        Log.Debug($"Recorded a barrier: {label}");
+        UndoSession.Changed();
     }
 
     // Main grid name, plus how many grids came with it
@@ -190,21 +209,28 @@ public static class Recorder
         bool referenceLost
     )
     {
-        var row = StoredGroups.Save(StoredGroups.Capture(grids), reason);
         var handles = grids.Select(Handle).ToList();
-        var node = Commit(
-            string.Format(label, Describe(row)),
-            new List<Op>
+        StoredGroups.Save(
+            StoredGroups.Capture(grids),
+            reason,
+            row =>
             {
-                new PasteGridsOp { Entry = row.Id, Grids = handles },
+                var node = Commit(
+                    string.Format(label, Describe(row)),
+                    new List<Op>
+                    {
+                        new PasteGridsOp { Entry = row.Id, Grids = handles },
+                    },
+                    new List<Op> { new CloseGridsOp { Grids = handles } }
+                );
+                if (referenceLost)
+                {
+                    node.ReferenceLost = true;
+                    UndoSession.Changed();
+                }
             },
-            new List<Op> { new CloseGridsOp { Grids = handles } }
+            row => CommitBarrier(string.Format(label, Describe(row)))
         );
-        if (referenceLost)
-        {
-            node.ReferenceLost = true;
-            UndoSession.Changed();
-        }
     }
 
     public static void ExpectMerge(MyCubeGrid grid) =>

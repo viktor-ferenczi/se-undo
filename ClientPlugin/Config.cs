@@ -436,6 +436,12 @@ public class Config : INotifyPropertyChanged
         set => SetField(ref logLevel, value);
     }
 
+    [Button(
+        "Grid history",
+        "Lists the grids backed up in the loaded world; a chosen one goes onto the clipboard"
+    )]
+    public static void OpenGridHistory() => Gui.GridHistoryScreen.Open();
+
     #endregion
 
     #region Property change notification boilerplate

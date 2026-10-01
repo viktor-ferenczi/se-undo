@@ -349,19 +349,34 @@ Hooks:
 - Write: postfix on `MyLocalCache.SaveCheckpoint(MyObjectBuilder_Checkpoint, string sessionPath, out ulong, List<MyCloudFile>)`,
   only when `sessionPath` ends with `.new`. Writes the byte array to
   `<sessionPath>/Undo.xml.gz` and adds a `MyCloudFile` to `fileList` so cloud saves
-  carry it. This runs on the save worker thread, hence the snapshot step above.
+  carry it. This runs on the save worker thread, hence the snapshot step above. The
+  bytes stay until the next save or the unload; the write does not consume them, so
+  a save queued behind another one gets the file too.
 - Load: `MySessionComponentBase.BeforeStart` of the plugin's session component
   (`[MySessionComponentDescriptor(MyUpdateOrder.NoUpdate)]`, registered automatically
   from plugin assemblies by `MySession.RegisterComponentsFromAssembly`). Entities
   exist and `CurrentPath` is set. Missing file or version mismatch means an empty
   history, never an error dialog.
-- Unload: `MySession.OnUnloading` clears the in-memory histories and text histories.
+- Unload: `MySession.OnUnloading` writes the client side file described below and
+  clears the in-memory histories. Text histories are keyed weakly by their text box
+  and go with it.
 
 Backups and restores need no extra code: `MySessionSnapshot.Backup` copies all top
 level files of the world folder, and `MyGuiScreenLoadSandbox.CopyBackupUpALevel`
 deletes the top level files and copies the backup's files back, including ours. Save
 As from within the game writes a fresh snapshot through the same staging folder, so
 the file follows. Save As from the Load menu copies top level files, so it follows too.
+
+Confirmed in game on 2026-10-01, offline: after a save the file is in the world
+folder and, byte for byte, in the newest `Backup/<timestamp>/` folder; a reload has
+the same nodes and cursor and undo works on them; a backup picked on the load menu's
+Backups screen comes back with its own history; Save As from the pause menu and
+Save As from the load menu both produce a world folder with the file. Backup folders
+are named by the second, so two saves within one second share a folder.
+
+A world copied with Save As has the history but not the grid store, which is keyed by
+the save folder name (below): in the copy, nodes that need a stored grid are refused
+until the player continues in the original. See R8.
 
 Client of a server (dedicated or someone else's lobby): no save folder, and no save
 event. The document goes into the plugin's own storage folder, with one sub-folder per
@@ -385,10 +400,12 @@ world key is the save folder name plus `WorldId`, so backups don't multiply the 
 It is written on `OnUnloading`, when the `OnServerSaving(true)` RPC arrives, and at
 most once per the configured interval after a change (default one minute). This history
 is not tied to the server's own backups; if the server restores an older world the
-plugin refuses nodes whose grids are gone, as in section 6. Old files are removed when
-they are older than the configured retention (default 90 days) so the folder does not
-grow with every server ever visited. The config has a switch to turn client side
-persistence off.
+plugin refuses nodes whose grids are gone, as in section 6. At plugin start a world
+folder under `Servers/` is deleted whole, history and grid store, when nothing in it
+was written for the configured retention (default 90 days), so the folder does not
+grow with every server ever visited; server and player folders left empty go with
+it. The config has a switch to turn client side persistence off, which stops both
+the loading and the writing.
 
 ## 9. Grid store and recovery dialog
 
@@ -444,6 +461,12 @@ entries across all world folders, so an old world's entries give way to the curr
 one. The client history retention days of section 8 delete whole world folders as
 before.
 
+As built (`StoreRetention`): cleanup runs after every entry that was committed. An
+entry indexed twice counts once and its file stays while a row needs it. For the
+total budget the grid of a row is its world folder plus entity id plus name, since
+copies of a world share entity ids. The total is first summed from the entry files on
+disk; the other worlds' indexes are opened only when something has to go.
+
 Oversized entries. When a single entry, once compressed, is larger than the per world
 budget or the total budget, cleanup cannot make room for it, so the plugin asks the
 player right away with a message box (`MyGuiSandbox.CreateMessageBox`, Yes and No):
@@ -468,6 +491,13 @@ entry is written to a temporary file next to the store meanwhile, the history of
 context is locked for undo and redo until the answer comes (the same lock as pending
 ops in section 10), and the answer then commits or deletes the temporary file.
 
+As built (`StoredGroups.Save`): the lock is the recorder's busy state, which the
+executor checks for both contexts. A box closed in any other way than through its
+buttons counts as No. An entry whose file is in the store already takes no new space
+and does not ask. Two captures cannot wait for an answer, the group snapshot of
+section 7 and a split piece captured on a client: they follow the config option when
+it is "Always raise" and are refused otherwise.
+
 Dialog. Opened by a configurable binding (default Ctrl-H) in the Build context, and by
 a button in the plugin's config dialog. No vanilla game control uses Ctrl-H, but
 `MyDX9Gui.HandleInput` toggles the render profiler (on its "Statistics" graph) on H
@@ -486,14 +516,27 @@ column that is already first flips its direction. Rows are ordered by comparing 
 keys in list order, so after Time descending then Name, the table is by name with the
 newest first inside each name. The plugin sorts the rows itself and re-adds them (the
 table's own `SortByColumn` knows one column), using `ColumnClicked` for the clicks.
-The key list is saved in the config so the dialog reopens the way it was left.
+The key list is saved in the config so the dialog reopens the way it was left. A
+column clicked for the first time sorts ascending; one that comes back to the front
+keeps the direction it had. The config file is written when the dialog closes.
 
 Double click (`ItemDoubleClicked`) or the Paste button loads the entry's builders onto
-the clipboard with the method above and closes the dialog; the player then places it
+the clipboard with the method above, closes the dialog and calls
+`MyClipboardComponent.Paste()` the way the blueprint screen does, which switches the
+paste preview on; the player then places it
 with the normal paste flow, so the server's paste permissions apply unchanged. A
 Delete button removes the selected entry (and its file when no other index row shares
 the id), with a confirmation. Entries referenced by an undo node can be deleted too;
 the node is then refused as described above.
+
+The button in the config dialog comes last there, since the generated dialog lists
+methods after properties, and tells the player to load a world when there is none.
+The binding stayed Ctrl-H: Ctrl-Shift-H was considered and clashes with the render
+profiler in the same way, since vanilla toggles it on H with any Ctrl held, and the
+prefix described above already frees Ctrl-H in the Build context. Plain H is the
+vanilla "toggle signals" control (`TOGGLE_SIGNALS`), the only default binding on that
+key; the key handler marks H as consumed for the frame, the same way as for undo, so
+opening the dialog does not also switch the signal mode.
 
 ## 10. Applying an action
 
@@ -556,10 +599,10 @@ other tunables.
 | Persist on multiplayer client | on | Section 8, client side storage |
 | Client storage root | `<UserDataPath>/Undo` | Root of the grid store (`Worlds/`) and the client histories (`Servers/`); empty in the config means the default |
 | Client autosave interval s | 60 | Minimum time between client side writes after a change |
-| Client history retention days | 90 | Files older than this are deleted at plugin start |
+| Client history retention days | 90 | A client session's world folder with nothing written for this long is deleted at plugin start |
 | Notifications | on | HUD text on undo, redo and refusals |
 | Notification duration ms | 2000 | HUD text lifetime |
-| Debug status file | off | Writes `<Client storage root>/status.json` after every history change, for the tests |
+| Debug status file | off | Writes `<Client storage root>/status.json` after every history change, for the tests: both histories, the last notification, and the rows of the grid history dialog while it is open |
 | Log level | Info | Plugin log verbosity in the game log |
 
 ## 12. Code structure
@@ -569,8 +612,10 @@ ClientPlugin/
   Plugin.cs                 IPlugin: Harmony PatchAll, config change hook, per frame update
   Config.cs                 options above
   Feedback.cs               log with the configured level, HUD notifications
-  Session/UndoSession.cs    MySessionComponentBase: per world state, debug status file;
-                            loading and saving the document come with persistence
+  Session/                  UndoSession (MySessionComponentBase): per world state, loading
+                            the document, the save snapshot, the client side file, debug
+                            status file. WorldSavePatches: the write into the save's
+                            staging folder and the server saving RPC
   History/                  Node, UndoHistory (tree, node cap, pending lock), Op base,
                             GridRegistry, Replay (the re-entrancy flag)
   Ops/                      one file per op kind: BuildBlocks, RazeBlocks, RestoreBlocks,
@@ -589,13 +634,15 @@ ClientPlugin/
                             rewrite
   Text/                     TextHistory (snapshots, no game references) and
                             TextHistories, the text box patches with one history per box
-  Storage/                  UndoDocument and its serializer, StatusFile, Gz; save and
-                            load hooks and the client side world file come later
-  GridStore/                GridStoreFolder (entry files, index, hashing), StoredGroups
-                            (the game side); retention cleanup later
-  Gui/                      grid history screen, table, sort key list (later)
+  Storage/                  UndoDocument and its serializer, StatusFile, Gz,
+                            ClientRetention (old client histories); no game references
+  GridStore/                GridStoreFolder (entry files, index, hashing, staged entries),
+                            StoreRetention (budgets and cleanup), SortKeys (the dialog's
+                            sort history), all three without game references;
+                            StoredGroups (the game side, the oversized question)
+  Gui/                      GridHistoryScreen
   Settings/                 template config dialog, plus a Note element for the option notes
-UndoTests/                  xunit tests of History, Storage, GridStoreFolder and TextHistory, compiled
+UndoTests/                  xunit tests of History, Storage, the game free GridStore files and TextHistory, compiled
                             from the plugin sources, no game needed (`dotnet test UndoTests`)
 tests/                      pytest suite and the isolated client rig, section 13
 ```
@@ -632,7 +679,10 @@ once at start; the linear behavior is covered by the unit tests. Block links are
 from the sector file after `POST /v1/game/save`, since the Remote API has no endpoint
 for toolbars, controller lists or groups. The status file also carries the size of the
 serialized undo document, which runs the XML serialization of the real ops in game,
-and per node the "reference lost" flag and the store entries it refers to.
+and per node the "reference lost" and barrier flags and the store entries it refers
+to. While the grid history dialog is open it also has the dialog's sort keys and rows.
+The run's `Undo.cfg` sets the per world grid store budget to 1 MB, below the slider's
+minimum in the config dialog, for the retention and oversized rows.
 
 The grid tests need a clear line of sight, and the player spawns inside the Earth
 base, where every ray ends at a wall within 15 m. They teleport the character onto
@@ -664,11 +714,13 @@ Coverage, one test per row, each followed by redo where it applies:
 | Tree option | build twice, undo twice, build again, undo, redo | status file: the abandoned branch is kept next to the new one, redo follows the branch visited last; world state |
 | Displaced vanilla keys | leave the cryo chamber, plain Z to switch the character dampeners off, Ctrl-Y and Ctrl-Z, then Ctrl-Shift-Z | dampeners stay off under undo and redo, come on with Ctrl-Shift-Z and stay on |
 | Terminal context | build, open the terminal with K, Ctrl-Z, close it, Ctrl-Z | the terminal history answers "Nothing to undo" and the block stays; back in gameplay the build is undone |
-| Grid store retention | delete grids until the per world budget is exceeded, with two deletes of one grid among them | the older copy of that grid is gone, its newest copy stays, unrelated older entries are gone first; then push past the point where only newest copies remain and see the oldest of those go |
-| Oversized entry | set the per world budget to 1 MB, delete a grid whose backup is larger, answer No through the message box, Ctrl-Z; then repeat with Yes | first: the grid stays deleted, the log has the barrier refusal, the config is unchanged; second: the config budget is raised to the next step, the entry is in the index, undo restores the grid |
-| Grid history dialog | open with the binding, read the table through `/v1/ui/screens/{i}/controls`, click columns in the order Time then Name, double click a row | rows sorted by name then time descending; after the double click the clipboard is active (paste via `/v1/input/key` and a new grid with that name appears) |
-| Persistence | `POST /v1/game/save`, check `Undo.xml.gz` in the save folder and in the newest `Backup/` folder, `game/reload`, undo still reverts the last build | filesystem and world state |
-| Backup restore | copy the newest backup's files up a level on disk the way the game does, load, history matches | world state |
+| Grid store retention | per world budget 1 MB for the whole run; two block stations whose backup is 300 KB each, a programmable block holding random text. Paste A, change it, delete it, paste B, C and D | after C the pasted copy of A is gone and its deleted copy stays, as does B, which is older but the only backup of its grid; after D only newest copies were left, so the oldest goes, A's; undo down to the delete of A is refused with "backup was cleaned up" |
+| Oversized entry | paste a station whose backup is 1.2 MB, answer No through the message box, Ctrl-Z; delete it, No, Ctrl-Z; paste again, Yes; change it, delete, Ctrl-Z | No: a barrier node, the refusal text, no row, no temporary file, the config unchanged. Yes: the config budget is 64 MB, the entry is in the index, the delete no longer asks and undo restores the grid |
+| Grid history dialog | open with Ctrl-H, table size through `/v1/ui/screens/{i}/controls`, row texts from the status file (Remote reports no cells, SE1-0072), click the headers Time then Name with real mouse clicks, select a row and Delete with Yes, double click a row, left click to place | newest first at the start; Time flips to ascending; then by name, oldest first inside each name; the deleted row and its file are gone; the sort keys are in the config file; the dialog closed, the paste preview is on and the click places a grid with that name, which undo removes |
+| Persistence | build, `POST /v1/game/save`, read `Undo.xml.gz` in the save folder and in the newest `Backup/` folder, reload from disk | node labels in the file, the backup's copy identical, same nodes and cursor after the reload, undo and redo of the build work |
+| Backup restore | save, build more, save again; delete the world folder's files and copy the older backup's files in their place, the way the game does; reload | nodes and cursor of the older save, its block there and the later one not, undo works |
+| Save As | `POST /v1/game/save` with a name; then from the title menu: Load Game, Save As | both new world folders have the file |
+| Backup restore by the game | title menu, Load Game, Backups, a backup whose history differs from the current one, Load | the world folder has that backup's file, the loaded history matches it |
 | Permissions | survival world: raze undo refused without creative tools, allowed after `settings/admin-flag` enables them | notification text in the log, world state |
 | Dedicated server client | Magnetar DS with DirectTransport and one client (`notes/game-test-instance-modes`, mode A); paste and undo as admin, refusal as a regular player | world state through the client's API |
 
@@ -687,9 +739,16 @@ floor and the character looks at its screen from one cell away. The station also
 a programmable block, turned the same way, and the world has scripts enabled. The PB
 row is a skipped test until SE1-0060; it was checked by hand, see section 16.
 
+The persistence, retention, oversized and dialog rows followed on 2026-10-01
+(`tests/test_grid_store.py`, `tests/test_world_save.py`): 30 tests and one skipped,
+about two and a half minutes per run. `test_world_save.py` runs last, because it reloads the
+world, leaves the session through the title menu and ends in a restored backup.
+
 Gaps that need Remote plugin work first, tracked in a separate ticket: no endpoint to
 read or write a PB program, no skin in block detail, painting only in one fixed color,
-no host lobby endpoint (so the friends host mode is a manual test until then).
+no host lobby endpoint (so the friends host mode is a manual test until then). Table
+cells and header clicks (SE1-0072) and the save browser's selection (SE1-0073) have
+workarounds in the tests.
 
 ## 14. Follow up tickets
 
@@ -750,6 +809,14 @@ no host lobby endpoint (so the friends host mode is a manual test until then).
   stroke on the same grid could be misattributed. Rare, and the reverse just repaints
   those blocks to their pre-stroke color.
 
+- R8, the grid store is keyed by the save folder name plus the world id, and Save As
+  gives the copy a new folder name. The copy carries the history but finds no
+  entries under its own key, so undoing a delete or redoing a paste there is refused
+  with "backup was cleaned up" while everything else works. Copying the entries
+  along would multiply the store with every Save As, which is what the key avoids.
+  Looking the entry up in the other world folders of the same world id would fix it
+  if it turns out to matter.
+
 ## 16. Implementation order
 
 1. History, Node, Op base, GridRegistry, UndoDocument serialization, unit tests without
@@ -764,6 +831,19 @@ no host lobby endpoint (so the friends host mode is a manual test until then).
 8. Survival and DS client behavior, permission tests, tree option.
 9. Grid store retention and the grid history dialog. The store itself exists from
    step 4 because the paste and delete ops write into it.
+
+Status on 2026-10-01, slice 4: steps 7 and 9 are done on the `impl-4-persistence`
+branch. Run in game, offline, by the test suite: everything in the persistence,
+backup, Save As, retention, oversized and dialog rows of section 13. Unit tested
+only: the total budget across several world folders, the retention of client
+histories, the sort key rules beyond the two clicks the dialog test makes, the
+budget raise arithmetic. Not run, because the rig has no server: the client side
+file (its path keys, the write on unload, on the server saving RPC and on the
+interval, loading it back) and the "persist on multiplayer client" switch. Not run
+either: the "Always raise" and "Never store" settings, the total budget in game, a
+closed message box counting as No, the Paste button of the dialog (it calls the same
+method as the double click), the button in the config dialog, a version mismatch
+in game (the serializer's answer is unit tested), cloud saves.
 
 Status on 2026-10-01, later: steps 5 and 6 are done on the `impl-3-terminal` branch.
 Run in game, offline, by the test suite: a checkbox and a slider through the terminal

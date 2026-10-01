@@ -87,6 +87,13 @@ public sealed class GridStoreFolder
     {
         Folder = folder;
         Index = LoadIndex();
+
+        // Staged entries nobody committed: the game ended while a question was open
+        if (Directory.Exists(folder))
+        {
+            foreach (var stale in Directory.GetFiles(folder, "*" + EntryExtension + ".tmp"))
+                File.Delete(stale);
+        }
     }
 
     private string IndexPath => Path.Combine(Folder, IndexFileName);
@@ -102,8 +109,27 @@ public sealed class GridStoreFolder
 
     public bool Has(string id) => id != null && File.Exists(EntryPath(id));
 
-    // Writes the entry unless the same XML is stored already, then adds the row
-    public StoreRow Add(string xml, StoreRow row)
+    // Compressed bytes on disk; an entry indexed more than once counts once
+    public long Bytes
+    {
+        get
+        {
+            var ids = new HashSet<string>();
+            long bytes = 0;
+            foreach (var row in Index.Rows)
+            {
+                if (ids.Add(row.Id))
+                    bytes += row.Bytes;
+            }
+            return bytes;
+        }
+    }
+
+    private string StagedPath(string id) => EntryPath(id) + ".tmp";
+
+    // Writes the entry as a temporary file, unless the same XML is stored already,
+    // and fills in the row's id and size. Commit or Discard follows.
+    public StoreRow Stage(string xml, StoreRow row)
     {
         Directory.CreateDirectory(Folder);
         row.Id = IdOf(xml);
@@ -111,19 +137,48 @@ public sealed class GridStoreFolder
         var path = EntryPath(row.Id);
         if (!File.Exists(path))
         {
-            var temporary = path + ".tmp";
-            using (var gzip = new GZipStream(File.Create(temporary), CompressionLevel.Optimal))
-            {
-                var bytes = Encoding.UTF8.GetBytes(xml);
-                gzip.Write(bytes, 0, bytes.Length);
-            }
-            File.Move(temporary, path);
+            path = StagedPath(row.Id);
+            using var gzip = new GZipStream(File.Create(path), CompressionLevel.Optimal);
+            var bytes = Encoding.UTF8.GetBytes(xml);
+            gzip.Write(bytes, 0, bytes.Length);
         }
 
         row.Bytes = new FileInfo(path).Length;
+        return row;
+    }
+
+    // True while the row's entry is a temporary file, which means it takes new space
+    public bool IsStaged(StoreRow row) => File.Exists(StagedPath(row.Id));
+
+    public StoreRow Commit(StoreRow row)
+    {
+        if (IsStaged(row))
+            File.Move(StagedPath(row.Id), EntryPath(row.Id));
         Index.Rows.Add(row);
         SaveIndex();
         return row;
+    }
+
+    public void Discard(StoreRow row) => File.Delete(StagedPath(row.Id));
+
+    public StoreRow Add(string xml, StoreRow row) => Commit(Stage(xml, row));
+
+    // Removes the row, and the entry file when no other row shares its id. Returns
+    // the bytes that freed.
+    public long Remove(StoreRow row, bool saveIndex = true)
+    {
+        if (!Index.Rows.Remove(row))
+            return 0;
+
+        long freed = 0;
+        if (!Index.Rows.Exists(r => r.Id == row.Id))
+        {
+            File.Delete(EntryPath(row.Id));
+            freed = row.Bytes;
+        }
+        if (saveIndex)
+            SaveIndex();
+        return freed;
     }
 
     // Null when the entry file is gone
@@ -155,7 +210,7 @@ public sealed class GridStoreFolder
         }
     }
 
-    private void SaveIndex()
+    public void SaveIndex()
     {
         var temporary = IndexPath + ".tmp";
         using (var stream = File.Create(temporary))

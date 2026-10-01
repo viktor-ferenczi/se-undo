@@ -44,8 +44,17 @@ The grid tests teleport the character onto the free edge of the station and past
 their test grid into the open air beside it, since the player spawns inside the Earth
 base with a wall in every direction.
 It writes `Remote.cfg` (port 24176) and `Storage/Undo.cfg` (status file, tree
-option, debug log) before it starts the client, and stops that client at the end.
+option, debug log, a grid store budget of 1 MB per world) before it starts the
+client, and stops that client at the end.
+
+The files run in name order and share the world. `test_grid_store.py` needs the
+1 MB budget and raises it to 64 MB in its oversized backup test, so on a client
+reused with `UNDO_ATTACH=1` its first two tests skip. `test_world_save.py` comes
+last: it reloads the world, saves it as `UndoSaveAsTest`, leaves the session
+through the title menu to copy a world as `UndoMenuCopyTest` there, and ends in a
+backup restored through the game's Backups screen.
 
 `UNDO_KEEP=1` leaves the client running, `UNDO_ATTACH=1` reuses it on the next
 run. `UNDO_WINDOWED=1` starts it with a real window, for checks done by hand. The plugin writes `~/.se-test/undo-data/Undo/status.json` after every history
-change; the tests read the histories and the last notification from there.
+change; the tests read the histories, the last notification and the rows of the grid
+history dialog from there.

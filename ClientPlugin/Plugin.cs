@@ -1,7 +1,9 @@
+using System;
 using System.Reflection;
 using ClientPlugin.Session;
 using ClientPlugin.Settings;
 using ClientPlugin.Settings.Layouts;
+using ClientPlugin.Storage;
 using HarmonyLib;
 using Sandbox.Graphics.GUI;
 using VRage.Plugins;
@@ -32,8 +34,26 @@ public class Plugin : IPlugin
 
         Config.Current.PropertyChanged += (_, _) => UndoSession.Configure();
 
+        CleanClientHistories();
+
         var harmony = new Harmony(Name);
         harmony.PatchAll(Assembly.GetExecutingAssembly());
+    }
+
+    // Histories of server sessions nobody came back to, design section 8
+    private static void CleanClientHistories()
+    {
+        try
+        {
+            var cutoff = DateTime.UtcNow.AddDays(-Config.Current.ClientHistoryRetentionDays);
+            var deleted = ClientRetention.Clean(UndoSession.StorageRoot, cutoff);
+            if (deleted != 0)
+                Log.Info($"Removed {deleted} client history folders past the retention time");
+        }
+        catch (Exception e)
+        {
+            Log.Error($"Cleaning the client histories failed: {e}");
+        }
     }
 
     public void Dispose()

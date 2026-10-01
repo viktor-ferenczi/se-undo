@@ -21,7 +21,7 @@ namespace ClientPlugin.Ops;
 // Client: the clipboard's paste request, new ids, matched when the grids arrive.
 public class PasteGridsOp : Op
 {
-    public const string BackupGone = "the grid backup is gone from the grid store";
+    public const string BackupGone = "backup was cleaned up";
 
     // Grid store entry holding the builders
     public string Entry;
@@ -151,7 +151,7 @@ public class GroupSnapshotOp : PasteGridsOp
         return () =>
             new GroupSnapshotOp
             {
-                Entry = StoredGroups.Save(builders, StoreReason.Snapshot).Id,
+                Entry = StoredGroups.SaveNow(builders, StoreReason.Snapshot).Id,
                 Grids = handles,
             };
     }

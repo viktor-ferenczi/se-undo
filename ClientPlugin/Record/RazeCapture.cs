@@ -70,7 +70,7 @@ public sealed class RazeCapture : ICapture
                 Entry = Sync.IsServer
                     ? null
                     : StoredGroups
-                        .Save(StoredGroups.Capture(new[] { piece }), StoreReason.Split)
+                        .SaveNow(StoredGroups.Capture(new[] { piece }), StoreReason.Split)
                         .Id,
             })
             .ToList();

@@ -110,15 +110,20 @@ public sealed class DeleteCapture : ICapture
         if (closed.Count == 0)
             return;
 
-        var row = StoredGroups.Save(closed.Select(i => builders[i]).ToList(), StoreReason.Deleted);
         var handles = closed.Select(i => Recorder.Handle(grids[i])).ToList();
-        Recorder.Commit(
-            $"deleted {Recorder.Describe(row)}",
-            new List<History.Op> { new CloseGridsOp { Grids = handles } },
-            new List<History.Op>
-            {
-                new PasteGridsOp { Entry = row.Id, Grids = handles },
-            }
+        StoredGroups.Save(
+            closed.Select(i => builders[i]).ToList(),
+            StoreReason.Deleted,
+            row =>
+                Recorder.Commit(
+                    $"deleted {Recorder.Describe(row)}",
+                    new List<History.Op> { new CloseGridsOp { Grids = handles } },
+                    new List<History.Op>
+                    {
+                        new PasteGridsOp { Entry = row.Id, Grids = handles },
+                    }
+                ),
+            row => Recorder.CommitBarrier($"deleted {Recorder.Describe(row)}")
         );
     }
 
