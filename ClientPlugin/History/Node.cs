@@ -27,6 +27,11 @@ public class Node
     // A paste on a client whose grids could not all be found; undo is refused, section 6
     public bool ReferenceLost;
 
+    // Stands in for an action whose grid backup was too large for the store budget
+    // and was dropped, section 9. Undo stops here: the world changed past this point
+    // in a way the history cannot take back.
+    public bool Barrier;
+
     // Ids of the grid store entries the ops and the snapshot need, section 9
     public List<string> StoreRefs = new List<string>();
 

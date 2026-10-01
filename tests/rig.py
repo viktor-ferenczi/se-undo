@@ -12,8 +12,10 @@ Pulsar folder, created once by hand (see tests/README.md)::
 
 from __future__ import annotations
 
+import base64
 import math
 import os
+import random
 import re
 import shutil
 import signal
@@ -72,6 +74,8 @@ UNDO_CONFIG = {
     "RecordTerminalChangesOutsideTerminal": "true",
     "UndoTree": "true",
     "LogLevel": "Debug",
+    # Small enough for the retention and oversized backup tests to reach
+    "GridStoreBudgetPerWorldMb": "1",
 }
 
 
@@ -286,9 +290,9 @@ def drift_ship_xml(position, forward, up) -> str:
     return _grid(DRIFT_SHIP_NAME, DRIFT_SHIP_ID, blocks, position, forward, up, False)
 
 
-def blueprint_xml(name: str, cells, static: bool = True) -> str:
+def blueprint_xml(name: str, cells, static: bool = True, blocks: str = "") -> str:
     """A bp.sbc document with one large grid of armor blocks, for the paste tests"""
-    blocks = "".join(_armor(p) for p in cells)
+    blocks = "".join(_armor(p) for p in cells) + blocks
     return (
         '<?xml version="1.0"?>'
         '<Definitions xmlns:xsd="http://www.w3.org/2001/XMLSchema" '
@@ -306,6 +310,34 @@ def blueprint_xml(name: str, cells, static: bool = True) -> str:
         f"<DisplayName>{name}</DisplayName></CubeGrid></CubeGrids>"
         "</ShipBlueprint></ShipBlueprints></Definitions>"
     )
+
+
+def heavy_blueprint_xml(name: str, payload_bytes: int, seed: int) -> str:
+    """A two block station whose backup is about payload_bytes large in the grid
+    store: its programmable block holds that much random text as a comment, which
+    gzip cannot shrink below the random bytes behind it. Block names would not do,
+    the game cuts them short. The light is there to be switched, which makes the
+    next backup of the grid differ from the last."""
+    noise = random.Random(seed).randbytes(payload_bytes)
+    cells = [(0, 0, 0), (1, 0, 0)]
+    blocks = "".join(_armor(p) for p in cells)
+    blocks += _block(
+        "MyObjectBuilder_MyProgrammableBlock",
+        "LargeProgrammableBlock",
+        (0, 1, 0),
+        f"<Program>/*{base64.b64encode(noise).decode('ascii')}*/</Program>",
+        entity_id=0,
+        forward="Backward",
+    )
+    blocks += _light((1, 1, 0), "Switch", entity_id=0)
+    return blueprint_xml(name, [], blocks=blocks)
+
+
+def undo_config(key: str) -> str | None:
+    """An option as the plugin last saved it; None while it has its default"""
+    text = (APPDATA / "Storage" / "Undo.cfg").read_text(encoding="utf-8")
+    match = re.search(rf"<{key}>(.*?)</{key}>", text)
+    return match.group(1) if match else None
 
 
 def _normalize(v):
@@ -512,6 +544,30 @@ def load_world(client: RemoteAPI, timeout: float = 420.0) -> None:
         client.load(str(WORLD))
     except Exception as err:  # noqa: BLE001 -- the load outlives the HTTP timeout
         print(f"load request returned early ({type(err).__name__})")
+    wait_world(client, timeout)
+
+
+def reload_world(client: RemoteAPI, timeout: float = 420.0) -> None:
+    """Loads the world again from its folder, without saving first. The plugin
+    writes its status file when the new session starts, which tells the old
+    session, still reported active while it unloads (SE1-0065), from the new one."""
+    marker = STATUS_FILE.stat().st_mtime_ns
+    try:
+        client.reload(save=False)
+    except Exception as err:  # noqa: BLE001 -- the load outlives the HTTP timeout
+        print(f"reload request returned early ({type(err).__name__})")
+    deadline = time.monotonic() + timeout
+    while STATUS_FILE.stat().st_mtime_ns == marker:
+        if time.monotonic() > deadline:
+            raise TimeoutError("The world did not start again")
+        time.sleep(0.5)
+    wait_world(client, timeout)
+    ensure_character(client)
+    focus_gameplay(client)
+    client.unpause()
+
+
+def wait_world(client: RemoteAPI, timeout: float = 420.0) -> None:
     deadline = time.monotonic() + timeout
     stable = 0
     while time.monotonic() < deadline:

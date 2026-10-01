@@ -60,6 +60,13 @@ public static class InputPatches
             if (consumedKey != MyKeys.None)
                 return;
 
+            if (config.GridHistoryBinding.HasPressed(MyInput.Static))
+            {
+                consumedKey = config.GridHistoryBinding.Key;
+                Gui.GridHistoryScreen.Open();
+                return;
+            }
+
             if (config.RelativeDampenersBinding.HasPressed(MyInput.Static))
             {
                 consumedKey = config.RelativeDampenersBinding.Key;

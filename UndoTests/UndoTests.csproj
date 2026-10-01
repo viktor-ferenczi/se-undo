@@ -11,6 +11,8 @@
     <Compile Include="../ClientPlugin/History/*.cs" LinkBase="History" />
     <Compile Include="../ClientPlugin/Storage/*.cs" LinkBase="Storage" />
     <Compile Include="../ClientPlugin/GridStore/GridStoreFolder.cs" LinkBase="GridStore" />
+    <Compile Include="../ClientPlugin/GridStore/StoreRetention.cs" LinkBase="GridStore" />
+    <Compile Include="../ClientPlugin/GridStore/SortKeys.cs" LinkBase="GridStore" />
     <Compile Include="../ClientPlugin/Text/TextHistory.cs" LinkBase="Text" />
   </ItemGroup>
 

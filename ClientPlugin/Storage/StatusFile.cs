@@ -13,7 +13,8 @@ public static class StatusFile
     public static string ToJson(
         IEnumerable<KeyValuePair<string, UndoHistory>> histories,
         string lastMessage,
-        int documentBytes
+        int documentBytes,
+        string extraJson = null
     )
     {
         var sb = new StringBuilder();
@@ -29,6 +30,8 @@ public static class StatusFile
         }
         sb.Append("},\"lastMessage\":").Append(Quote(lastMessage));
         sb.Append(",\"documentBytes\":").Append(documentBytes);
+        if (extraJson != null)
+            sb.Append(',').Append(extraJson);
         sb.Append('}');
         return sb.ToString();
     }
@@ -46,14 +49,15 @@ public static class StatusFile
                 nodes.Select(n =>
                     string.Format(
                         CultureInfo.InvariantCulture,
-                        "{{\"id\":{0},\"parent\":{1},\"children\":[{2}],\"label\":{3},\"unknown\":{4},\"referenceLost\":{5},\"storeRefs\":[{6}]}}",
+                        "{{\"id\":{0},\"parent\":{1},\"children\":[{2}],\"label\":{3},\"unknown\":{4},\"referenceLost\":{5},\"storeRefs\":[{6}],\"barrier\":{7}}}",
                         n.Id,
                         n.ParentId,
                         string.Join(",", n.ChildIds),
                         Quote(n.Label),
                         n.UnknownResult ? "true" : "false",
                         n.ReferenceLost ? "true" : "false",
-                        string.Join(",", n.StoreRefs.Select(Quote))
+                        string.Join(",", n.StoreRefs.Select(Quote)),
+                        n.Barrier ? "true" : "false"
                     )
                 )
             )
@@ -61,7 +65,7 @@ public static class StatusFile
         sb.Append("]}");
     }
 
-    private static string Quote(string text)
+    public static string Quote(string text)
     {
         if (text == null)
             return "null";

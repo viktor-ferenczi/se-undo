@@ -97,6 +97,13 @@ public class UndoHistory
         return node;
     }
 
+    public Node RecordBarrier(string label, DateTime utcNow)
+    {
+        var node = Record(label, new List<Op>(), new List<Op>(), utcNow);
+        node.Barrier = true;
+        return node;
+    }
+
     public void MarkUndone(Node node)
     {
         var parent = Get(node.ParentId);

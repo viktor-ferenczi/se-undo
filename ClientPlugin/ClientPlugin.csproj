@@ -259,6 +259,8 @@
     <DoNotPublicize Include="Sandbox.Game:Sandbox.Game.Entities.MyEntities.OnEntityRemove" />
     <DoNotPublicize Include="Sandbox.Game:Sandbox.Game.Entities.MyCubeGrid.OnStaticChanged" />
     <DoNotPublicize Include="Sandbox.Game:Sandbox.Game.Entities.MyCubeGrid.OnGridSplit" />
+    <DoNotPublicize Include="Sandbox.Game:Sandbox.Game.World.MySession.OnSavingCheckpoint" />
+    <DoNotPublicize Include="Sandbox.Game:Sandbox.Game.World.MySession.OnUnloading" />
   </ItemGroup>
   <Target Name="ValidateProps" BeforeTargets="PrepareForBuild">
     <Error

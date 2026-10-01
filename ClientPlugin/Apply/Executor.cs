@@ -36,6 +36,12 @@ public static class Executor
             return;
         }
 
+        if (node.Barrier)
+        {
+            Notify.Show($"{verb} not available: backup was too large for the budget");
+            return;
+        }
+
         if (node.ReferenceLost)
         {
             Notify.Show($"{verb} not available: the grids of {node.Label} could not be identified");
