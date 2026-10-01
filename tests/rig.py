@@ -33,33 +33,52 @@ sys.path.insert(0, str(REMOTE_REPO / "skills" / "se-remote"))
 
 from se_remote import RemoteAPI  # noqa: E402
 
-PULSAR_DIR = Path(os.environ.get("UNDO_PULSAR_DIR", HOME / ".se-test/undo"))
-LAUNCHER = PULSAR_DIR / "UndoInterim.bin"
-APPDATA = Path(os.environ.get("UNDO_APPDATA", HOME / ".se-test/undo-data"))
-PORT = int(os.environ.get("UNDO_REMOTE_PORT", "24176"))
-BASE_URL = f"http://127.0.0.1:{PORT}"
-PID_FILE = APPDATA / "game.pid"
-LAUNCH_LOG = APPDATA / "launch.log"
-STATUS_FILE = APPDATA / "Undo" / "status.json"
 WINDOWED = os.environ.get("UNDO_WINDOWED") == "1"
 
-GAME_ARGS = [
-    "-multiInstance",
-    "-lazySteam",
-    "-noprompt",
-    "-noupdate",
-    "-nosplash",
-    "-stablelogs",
-    "-sources",
-    "--no-steam",
-    "-appdata",
-    str(APPDATA),
-    "--headless",
-    "--quality",
-    "minimal",
-    "--resolution",
-    "1280x720",
-]
+
+class Client:
+    """One isolated client: its Pulsar folder with a renamed launcher, its game
+    user data folder and its Remote port"""
+
+    def __init__(self, pulsar: Path, launcher: str, appdata: Path, port: int):
+        self.pulsar = Path(pulsar)
+        self.launcher = self.pulsar / launcher
+        self.appdata = Path(appdata)
+        self.port = port
+        self.pid_file = self.appdata / "game.pid"
+        self.launch_log = self.appdata / "launch.log"
+        self.status_file = self.appdata / "Undo" / "status.json"
+
+    def args(self) -> list[str]:
+        args = [
+            "-multiInstance",
+            "-lazySteam",
+            "-noprompt",
+            "-noupdate",
+            "-nosplash",
+            "-stablelogs",
+            "-sources",
+            "--no-steam",
+            "-appdata",
+            str(self.appdata),
+            "--quality",
+            "minimal",
+            "--resolution",
+            "1280x720",
+        ]
+        # UNDO_WINDOWED=1 opens a real window, for checks done by hand
+        return args if WINDOWED else args + ["--headless"]
+
+
+CLIENT = Client(
+    os.environ.get("UNDO_PULSAR_DIR", HOME / ".se-test/undo"),
+    "UndoInterim.bin",
+    os.environ.get("UNDO_APPDATA", HOME / ".se-test/undo-data"),
+    int(os.environ.get("UNDO_REMOTE_PORT", "24176")),
+)
+PULSAR_DIR = CLIENT.pulsar
+APPDATA = CLIENT.appdata
+STATUS_FILE = CLIENT.status_file
 
 # Saves of the offline (no Steam) player
 SAVES = APPDATA / "Saves" / "1234567891011"
@@ -438,14 +457,16 @@ def prepare_world(world: Path = WORLD, mode: str = "Creative") -> Path:
 # ---------------------------------------------------------------------------
 
 
-def write_configs() -> None:
-    APPDATA.mkdir(parents=True, exist_ok=True)
-    (APPDATA / "Storage").mkdir(exist_ok=True)
+def write_configs(client: Client = CLIENT, undo_config: dict | None = None) -> None:
+    appdata = client.appdata
+    appdata.mkdir(parents=True, exist_ok=True)
+    (appdata / "Storage").mkdir(exist_ok=True)
 
     options = "".join(
-        f"  <{key}>{value}</{key}>\n" for key, value in UNDO_CONFIG.items()
+        f"  <{key}>{value}</{key}>\n"
+        for key, value in (undo_config or UNDO_CONFIG).items()
     )
-    (APPDATA / "Storage" / "Undo.cfg").write_text(
+    (appdata / "Storage" / "Undo.cfg").write_text(
         '<?xml version="1.0" encoding="utf-8"?>\n'
         '<Config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
         'xmlns:xsd="http://www.w3.org/2001/XMLSchema">\n'
@@ -453,12 +474,12 @@ def write_configs() -> None:
         encoding="utf-8",
     )
 
-    (APPDATA / "Remote.cfg").write_text(
+    (appdata / "Remote.cfg").write_text(
         f"""<?xml version="1.0" encoding="utf-8"?>
 <PluginConfig xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
   <Enabled>true</Enabled>
   <ListenIP>127.0.0.1</ListenIP>
-  <ListenPort>{PORT}</ListenPort>
+  <ListenPort>{client.port}</ListenPort>
   <AdminPassword>SpaceEngineers</AdminPassword>
   <GridGetRateLimit>1000</GridGetRateLimit>
   <GridGetBurstSize>2000</GridGetBurstSize>
@@ -472,7 +493,7 @@ def write_configs() -> None:
     )
 
     # The Earth world is experimental; a fresh user data folder says it is not
-    game_cfg = APPDATA / "SpaceEngineers.cfg"
+    game_cfg = appdata / "SpaceEngineers.cfg"
     if not game_cfg.exists():
         shutil.copy(HOME / ".config/SpaceEngineers/SpaceEngineers.cfg", game_cfg)
     text = game_cfg.read_text(encoding="utf-8")
@@ -484,58 +505,54 @@ def write_configs() -> None:
     game_cfg.write_text(text, encoding="utf-8")
 
 
-def running_pid() -> int | None:
+def running_pid(client: Client = CLIENT) -> int | None:
     try:
-        pid = int(PID_FILE.read_text().strip())
+        pid = int(client.pid_file.read_text().strip())
+        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
     except (OSError, ValueError):
         return None
-    try:
-        exe = os.readlink(f"/proc/{pid}/exe")
-    except OSError:
-        return None
-    # The apphost re-execs itself; its exe is the dotnet host or the copy
-    cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
-    return pid if exe and cmdline and cmdline[0].endswith(b"UndoInterim.bin") else None
+    # Only a process started from this client's launcher counts
+    return pid if cmdline[0] == str(client.launcher).encode() else None
 
 
-def launch() -> int:
-    if running_pid():
+def launch(client: Client = CLIENT, extra_args=(), undo_config=None) -> int:
+    if running_pid(client):
         raise RuntimeError(
-            f"The Undo test client is already running, pid {running_pid()}"
+            f"The test client is already running, pid {running_pid(client)}"
         )
-    write_configs()
-    log = open(LAUNCH_LOG, "w")
-    # UNDO_WINDOWED=1 opens a real window, for checks done by hand
-    args = [a for a in GAME_ARGS if a != "--headless" or not WINDOWED]
+    write_configs(client, undo_config)
+    log = open(client.launch_log, "w")
     process = subprocess.Popen(
-        [str(LAUNCHER), *args],
-        cwd=PULSAR_DIR,
+        [str(client.launcher), *client.args(), *extra_args],
+        cwd=client.pulsar,
         stdout=log,
         stderr=subprocess.STDOUT,
         stdin=subprocess.DEVNULL,
         start_new_session=True,
     )
-    PID_FILE.write_text(str(process.pid))
+    client.pid_file.write_text(str(process.pid))
     return process.pid
 
 
-def stop() -> None:
+def stop(client: Client = CLIENT) -> None:
     """Stops only the client this rig started."""
-    pid = running_pid()
+    pid = running_pid(client)
     if pid is None:
         return
     os.kill(pid, signal.SIGTERM)
     for _ in range(30):
-        if running_pid() is None:
+        if running_pid(client) is None:
             break
         time.sleep(1)
     else:
         os.kill(pid, signal.SIGKILL)
-    PID_FILE.unlink(missing_ok=True)
+    client.pid_file.unlink(missing_ok=True)
 
 
-def api() -> RemoteAPI:
-    return RemoteAPI(BASE_URL, username="admin", password="SpaceEngineers")
+def api(client: Client = CLIENT) -> RemoteAPI:
+    return RemoteAPI(
+        f"http://127.0.0.1:{client.port}", username="admin", password="SpaceEngineers"
+    )
 
 
 def load_world(client: RemoteAPI, world: Path = WORLD, timeout: float = 420.0) -> None:

@@ -38,6 +38,10 @@ public class UndoSession : MySessionComponentBase
     private static bool unsaved;
     private static DateTime lastClientWriteUtc;
 
+    // Client sessions: the history is loaded once the server sent the player's
+    // identity, which is part of its path. Nothing is written before that.
+    private static bool waitingForIdentity;
+
     private static UndoDocumentSerializer Serializer =>
         serializer ??= new UndoDocumentSerializer(OpTypes.All);
 
@@ -64,6 +68,7 @@ public class UndoSession : MySessionComponentBase
         unsaved = false;
         lastClientWriteUtc = DateTime.UtcNow;
         MyEntities.OnEntityAdd += PasteMatch.OnEntityAdd;
+        MyEntities.OnEntityAdd += OnEntityAdd;
         MySession.Static.OnSavingCheckpoint += OnSavingCheckpoint;
         MySession.OnUnloading += OnUnloading;
         Configure();
@@ -74,8 +79,15 @@ public class UndoSession : MySessionComponentBase
     public override void BeforeStart()
     {
         TerminalContextPatches.PatchControls();
-        Document = Load();
         Log.Info($"Session mode: {Permissions.Mode}");
+        waitingForIdentity = !Sync.IsServer;
+        if (!waitingForIdentity)
+            LoadDocument();
+    }
+
+    private static void LoadDocument()
+    {
+        Document = Load();
         Configure();
         Changed();
         unsaved = false;
@@ -85,7 +97,15 @@ public class UndoSession : MySessionComponentBase
     {
         MySession.OnUnloading -= OnUnloading;
         MyEntities.OnEntityAdd -= PasteMatch.OnEntityAdd;
+        MyEntities.OnEntityAdd -= OnEntityAdd;
         Clear();
+    }
+
+    // A grid brings the terminal controls of its block types along
+    private static void OnEntityAdd(VRage.Game.Entity.MyEntity entity)
+    {
+        if (entity is MyCubeGrid)
+            TerminalContextPatches.ControlsMayHaveChanged();
     }
 
     // Before the game takes anything down. A client has no save event, so its
@@ -144,7 +164,11 @@ public class UndoSession : MySessionComponentBase
         }
 
         document ??= new UndoDocument();
-        document.Grids.MarkMissing(MyEntities.EntityExists);
+        // Not on a client: its grids stream in after the load and come and go with
+        // the sync distance, so a missing one is only missing for now. Resolving a
+        // handle checks that the grid is there either way.
+        if (Sync.IsServer)
+            document.Grids.MarkMissing(MyEntities.EntityExists);
         return document;
     }
 
@@ -172,7 +196,12 @@ public class UndoSession : MySessionComponentBase
     {
         unsaved = false;
         lastClientWriteUtc = DateTime.UtcNow;
-        if (Document == null || Sync.IsServer || !Config.Current.PersistOnMultiplayerClient)
+        if (
+            Document == null
+            || Sync.IsServer
+            || waitingForIdentity
+            || !Config.Current.PersistOnMultiplayerClient
+        )
             return;
 
         try
@@ -209,6 +238,13 @@ public class UndoSession : MySessionComponentBase
         if (Document == null)
             return;
 
+        if (waitingForIdentity && MySession.Static.LocalPlayerId != 0)
+        {
+            waitingForIdentity = false;
+            LoadDocument();
+        }
+
+        TerminalContextPatches.Update();
         Recorder.Update();
         Executor.Update(Document.Build);
         Executor.Update(Document.Terminal);
