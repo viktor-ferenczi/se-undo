@@ -115,6 +115,7 @@ LIMITS_AREA = [(x, 1, z) for z in range(14) for x in range(15)]
 BUILD_CELL = (15, 1, 15)
 TREE_CELLS = [(15, 1, 12), (15, 1, 13), (15, 1, 14)]
 ALTITUDE_M = 300.0
+LARGE_BLOCK_M = 2.5
 
 # A dynamic ship far out in space. Its outer part carries a battery and a thruster
 # that is off; the test switches the thruster on and removes the bridge, so the
@@ -268,6 +269,33 @@ def drift_ship_xml(position, forward, up) -> str:
     return _grid(DRIFT_SHIP_NAME, DRIFT_SHIP_ID, blocks, position, forward, up, False)
 
 
+def blueprint_xml(name: str, cells, static: bool = True) -> str:
+    """A bp.sbc document with one large grid of small cargo containers, for the
+    paste tests. Functional blocks, because the Remote target API names the grid
+    only for a hit on one of those."""
+    blocks = "".join(
+        _block("MyObjectBuilder_CargoContainer", "LargeBlockSmallContainer", p)
+        for p in cells
+    )
+    return (
+        '<?xml version="1.0"?>'
+        '<Definitions xmlns:xsd="http://www.w3.org/2001/XMLSchema" '
+        'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><ShipBlueprints>'
+        '<ShipBlueprint xsi:type="MyObjectBuilder_ShipBlueprintDefinition">'
+        f'<Id Type="MyObjectBuilder_ShipBlueprintDefinition" Subtype="{name}" />'
+        "<CubeGrids><CubeGrid><SubtypeName />"
+        "<PersistentFlags>CastShadows InScene</PersistentFlags>"
+        '<PositionAndOrientation><Position x="0" y="0" z="0" />'
+        '<Forward x="0" y="0" z="-1" /><Up x="0" y="1" z="0" /></PositionAndOrientation>'
+        f"<GridSizeEnum>Large</GridSizeEnum><CubeBlocks>{blocks}</CubeBlocks>"
+        # Unsupported, a static grid out of voxel contact would turn into a ship
+        f"<IsStatic>{'true' if static else 'false'}</IsStatic>"
+        f"<IsUnsupportedStation>{'true' if static else 'false'}</IsUnsupportedStation>"
+        f"<DisplayName>{name}</DisplayName></CubeGrid></CubeGrids>"
+        "</ShipBlueprint></ShipBlueprints></Definitions>"
+    )
+
+
 def _normalize(v):
     length = math.sqrt(sum(c * c for c in v))
     return [c / length for c in v]
@@ -281,8 +309,45 @@ def _cross(a, b):
     ]
 
 
+def station_frame(sector_text: str | None = None):
+    """Position, forward and up of the test station. It floats above the saved
+    character, upright against the planet's gravity (the planet is centred on the
+    origin)."""
+    if sector_text is None:
+        with zipfile.ZipFile(TEMPLATE_ZIP) as archive:
+            sector_text = archive.read(
+                "RemoteAPITestEarthPlanet/SANDBOX_0_0_0_.sbs"
+            ).decode("utf-8")
+    start = sector_text.index(
+        '<MyObjectBuilder_EntityBase xsi:type="MyObjectBuilder_Character">'
+    )
+    match = re.search(
+        r'<Position x="([^"]+)" y="([^"]+)" z="([^"]+)"', sector_text[start:]
+    )
+    character = [float(c) for c in match.groups()]
+    up = _normalize(character)
+    side = _normalize(_cross(up, [1.0, 0.0, 0.0]))
+    forward = _cross(up, side)
+    position = [character[i] + up[i] * ALTITUDE_M for i in range(3)]
+    return position, forward, up
+
+
+def station_point(cell) -> list[float]:
+    """World position of a station cell centre; fractions address inside a cell.
+    Grid axes: X right, Y up, Z backward."""
+    position, forward, up = station_frame()
+    right = _cross(forward, up)
+    return [
+        position[i]
+        + LARGE_BLOCK_M * (cell[0] * right[i] + cell[1] * up[i] - cell[2] * forward[i])
+        for i in range(3)
+    ]
+
+
 def prepare_world() -> Path:
     """Fresh copy of the Remote suite's Earth world with the test station."""
+    # The grid store of the previous run, keyed by the same world folder and id
+    shutil.rmtree(APPDATA / "Undo" / "Worlds", ignore_errors=True)
     if WORLD.exists():
         shutil.rmtree(WORLD)
     SAVES.mkdir(parents=True, exist_ok=True)
@@ -303,23 +368,14 @@ def prepare_world() -> Path:
             r"<GameMode>\w+</GameMode>", "<GameMode>Creative</GameMode>", text
         )
         text = text.replace("<StationVoxelSupport>false", "<StationVoxelSupport>true")
+        # Pasting in creative needs it, by hand and for undo
+        text = text.replace("<EnableCopyPaste>false", "<EnableCopyPaste>true")
         path.write_text(text, encoding="utf-8")
 
     sector = WORLD / "SANDBOX_0_0_0_.sbs"
     text = sector.read_text(encoding="utf-8")
 
-    # The station floats above the player, upright against the planet's gravity
-    # (the planet is centred on the origin)
-    start = text.index(
-        '<MyObjectBuilder_EntityBase xsi:type="MyObjectBuilder_Character">'
-    )
-    match = re.search(r'<Position x="([^"]+)" y="([^"]+)" z="([^"]+)"', text[start:])
-    character = [float(c) for c in match.groups()]
-    up = _normalize(character)
-    side = _normalize(_cross(up, [1.0, 0.0, 0.0]))
-    forward = _cross(up, side)
-    position = [character[i] + up[i] * ALTITUDE_M for i in range(3)]
-
+    position, forward, up = station_frame(text)
     far = [c * DRIFT_DISTANCE_M for c in up]
     grids = station_xml(position, forward, up) + drift_ship_xml(far, forward, up)
     text = text.replace("</SectorObjects>", grids + "</SectorObjects>", 1)
