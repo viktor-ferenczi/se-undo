@@ -84,8 +84,8 @@ public sealed class MatchCapture : ICapture
     public void Abort() { }
 }
 
-// Grids closed by the clipboard's delete or cut, snapshot before the request the
-// way the clipboard copies them. Only grids that really closed are recorded.
+// Grids closed by the player's close request, snapshot before the request the way
+// the clipboard copies them. Only grids that really closed are recorded.
 public sealed class DeleteCapture : ICapture
 {
     private readonly List<MyCubeGrid> grids;

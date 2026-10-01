@@ -96,27 +96,13 @@ def test_paste_then_undo_and_redo(game):
     wait_until(lambda: not pasted_grids(game), "the grid to go again")
 
 
-def delete_with_clipboard(game, grid: dict) -> None:
-    """Looks at the grid and deletes it the way a player does: Ctrl-Delete, Yes"""
-    api = game.api
-    aim_at(api, grid)
-    api.key("Delete", ["LeftControl"])
-    box = wait_until(
-        lambda: next(
-            (s for s in api.list_screens() if s.get("type") == "MyGuiScreenMessageBox"),
-            None,
-        ),
-        "the delete confirmation",
-    )
-    api.control_click(text="Yes", screen=box["index"])
-
-
 def test_delete_grid_then_undo(game):
+    """Remote's grid_close sends the player's close request, which is recorded"""
     pasted = paste_test_grid(game)
     last = game.last_node_id()
 
-    delete_with_clipboard(game, pasted)
-    wait_until(lambda: not pasted_grids(game), "the deleted grid to go")
+    assert game.api.close_grid(pasted["entityId"])["closed"]
+    wait_until(lambda: not pasted_grids(game), "the closed grid to go")
     node = game.wait_recorded(last, f"deleted {PASTE_NAME}")
     (entry,) = node["storeRefs"]
     assert any(
@@ -136,7 +122,37 @@ def test_delete_grid_then_undo(game):
     # Leave the world without it
     game.undo(expect=f"Undo: pasted {PASTE_NAME}")
     wait_until(lambda: not pasted_grids(game), "the pasted grid to go")
-    time.sleep(0.2)
+
+
+def test_clipboard_delete_is_one_node(game):
+    """Ctrl-Delete deletes the grid's group, one close request per grid, and records
+    them as a single node"""
+    api = game.api
+    pasted = paste_test_grid(game)
+    last = game.last_node_id()
+
+    aim_at(api, pasted)
+    api.key("Delete", ["LeftControl"])
+    box = wait_until(
+        lambda: next(
+            (s for s in api.list_screens() if s.get("type") == "MyGuiScreenMessageBox"),
+            None,
+        ),
+        "the delete confirmation",
+    )
+    api.control_click(text="Yes", screen=box["index"])
+    wait_until(lambda: not pasted_grids(game), "the deleted grid to go")
+    game.wait_recorded(last, f"deleted {PASTE_NAME}")
+    time.sleep(0.5)
+    assert [n["id"] for n in game.build()["nodes"] if n["id"] > last] == [
+        game.last_node_id()
+    ]
+
+    assert game.undo() == f"Undo: deleted {PASTE_NAME}"
+    (grid,) = wait_until(lambda: pasted_grids(game), "the grid to come back")
+    assert grid["entityId"] == pasted["entityId"]
+    game.undo(expect=f"Undo: pasted {PASTE_NAME}")
+    wait_until(lambda: not pasted_grids(game), "the pasted grid to go")
 
 
 def click(api) -> None:

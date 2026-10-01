@@ -270,13 +270,8 @@ def drift_ship_xml(position, forward, up) -> str:
 
 
 def blueprint_xml(name: str, cells, static: bool = True) -> str:
-    """A bp.sbc document with one large grid of small cargo containers, for the
-    paste tests. Functional blocks, because the Remote target API names the grid
-    only for a hit on one of those."""
-    blocks = "".join(
-        _block("MyObjectBuilder_CargoContainer", "LargeBlockSmallContainer", p)
-        for p in cells
-    )
+    """A bp.sbc document with one large grid of armor blocks, for the paste tests"""
+    blocks = "".join(_armor(p) for p in cells)
     return (
         '<?xml version="1.0"?>'
         '<Definitions xmlns:xsd="http://www.w3.org/2001/XMLSchema" '
