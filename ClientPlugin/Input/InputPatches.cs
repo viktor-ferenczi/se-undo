@@ -2,7 +2,6 @@ using System.Diagnostics.CodeAnalysis;
 using ClientPlugin.Apply;
 using ClientPlugin.History;
 using ClientPlugin.Session;
-using ClientPlugin.Settings.Tools;
 using ClientPlugin.Text;
 using HarmonyLib;
 using Sandbox.Engine;

@@ -6,9 +6,7 @@ using ClientPlugin.Ops;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Cube;
 using Sandbox.Game.Multiplayer;
-using VRage;
 using VRage.Game;
-using VRage.ObjectBuilders.Private;
 using VRageMath;
 
 namespace ClientPlugin.Record;

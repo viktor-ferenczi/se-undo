@@ -1,7 +1,6 @@
 using Sandbox.Game.Entities;
 using Sandbox.Game.Multiplayer;
 using Sandbox.Game.World;
-using VRage.Game;
 using VRage.Game.Entity;
 
 namespace ClientPlugin.Apply;

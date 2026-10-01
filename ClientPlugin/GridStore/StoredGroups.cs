@@ -50,7 +50,7 @@ public static class StoredGroups
         return chars.Length == 0 ? "_" : new string(chars);
     }
 
-    // The grids a delete or a snapshot takes along with this one
+    // The grids the group snapshot of a client replay takes along with this one
     public static List<MyCubeGrid> GroupOf(MyCubeGrid grid) =>
         MyCubeGridGroups
             .Static.GetGroups(Config.Current.GroupLinkTypeForSnapshots)

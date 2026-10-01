@@ -318,9 +318,10 @@ so no snapshot is attached then; the node is refused as before.
 
 File: `Undo.xml.gz` in the world folder, one top level file. The root element is the
 plugin's own `UndoDocument` (version, both persisted histories, the grid registry),
-serialized with `System.Xml.Serialization.XmlSerializer` and gzip compressed. Grid and
-block snapshots are stored as XML text produced by
-`MyObjectBuilderSerializerKeen.SerializeXML(Stream, ob)`, nested as element text. The
+serialized with `System.Xml.Serialization.XmlSerializer` and gzip compressed. Block
+snapshots (removed blocks, blocks pasted into a grid) are stored as XML text produced by
+`MyObjectBuilderSerializerKeen.SerializeXML(Stream, ob)`, nested as element text; grid
+groups go to the grid store of section 9 and the document keeps only their ids. The
 game's own `MyObjectBuilderSerializer` cannot be used: it refuses paths outside the Mods
 and Content folders. Keen's serializer handles the polymorphic object builders; the
 outer gzip makes the nested XML cheap. A binary (protobuf) variant is not needed; the
@@ -492,9 +493,11 @@ the node is then refused as described above.
 4. Ops that complete asynchronously (paste, close, grid name, paint on a client) are
    tracked by the `Pending` list: the op registers what it expects (a grid added, a
    grid removed, a broadcast arrived) and the executor keeps the history locked for
-   further undo or redo until they complete or a timeout of 5 seconds passes. On
-   timeout the node is marked "unknown result": the next undo of it goes through the
-   group snapshot path if a snapshot exists, otherwise it is refused.
+   further undo or redo until they complete or a timeout of 5 seconds passes. A close
+   is checked on a local server too, since the game refuses an economy station there
+   without an error. On timeout the node is marked "unknown result": the next step
+   across it goes through the group snapshot path if a snapshot exists (section 7),
+   otherwise it is refused.
 5. Move `current`, show a HUD notification with the node label.
 
 Failures reported by the server (`BuildBlocksFailedNotify`, `OnColorGridBlockFailed`,
@@ -526,7 +529,7 @@ other tunables.
 | Grid history binding | Ctrl-H | Opens the recovery dialog in the Build context; takes Ctrl-H from the vanilla render profiler there, which stays on Ctrl-Shift-H |
 | Grid history sort keys | Time descending | Saved column sort history of the dialog, stored as comma separated column names with a leading `-` for descending (`-Time`); no control in the config dialog |
 | Undo tree | off | Keep abandoned branches |
-| Group link type for snapshots | Logical | `GridLinkTypeEnum` used to collect a grid group; Physical also follows connectors |
+| Group link type for snapshots | Logical | `GridLinkTypeEnum` used to collect the group snapshot of section 7; Physical also follows connectors. A clipboard delete takes the group the game closes |
 | Record terminal changes outside the terminal | off | Toolbar and script driven property changes |
 | Restore removed blocks with full state | on | Use the paste path when creative rights allow it; off always rebuilds from the definition |
 | Paint stroke timeout ms | 300 | Coalescing window for held mouse painting |
@@ -536,7 +539,7 @@ other tunables.
 | Paste match position tolerance m | 0.5 | Position tolerance for that match |
 | Persist in the world save | on | Section 8, offline and hosting |
 | Persist on multiplayer client | on | Section 8, client side storage |
-| Client storage root | `<UserDataPath>/Undo` | Root of the `Servers/` tree; empty in the config means the default |
+| Client storage root | `<UserDataPath>/Undo` | Root of the grid store (`Worlds/`) and the client histories (`Servers/`); empty in the config means the default |
 | Client autosave interval s | 60 | Minimum time between client side writes after a change |
 | Client history retention days | 90 | Files older than this are deleted at plugin start |
 | Notifications | on | HUD text on undo, redo and refusals |

@@ -6,7 +6,6 @@ using ClientPlugin.GridStore;
 using ClientPlugin.History;
 using ClientPlugin.Session;
 using Sandbox.Engine.Multiplayer;
-using Sandbox.Game.Entities;
 using Sandbox.Game.Multiplayer;
 using VRage;
 using VRage.Game;
