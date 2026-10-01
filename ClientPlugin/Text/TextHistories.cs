@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Text;
 using HarmonyLib;
+using Sandbox.Game.Gui;
 using Sandbox.Graphics.GUI;
 using VRage.Input;
 
@@ -33,6 +34,11 @@ public static class TextHistories
     // Set while a snapshot is put back, which raises the change event too
     private static bool restoring;
 
+    // With the option off, text boxes of the terminal leave the keys to its history
+    public static bool HandedToTerminal =>
+        !Config.Current.SeparateTextUndoInTerminal
+        && MyScreenManager.GetScreenWithFocus() is MyGuiScreenTerminal;
+
     private static string TextOf(MyGuiControlTextbox textbox)
     {
         Buffer.Clear();
@@ -61,7 +67,7 @@ public static class TextHistories
         private static bool Prefix(MyGuiControlTextbox __instance, ref MyGuiControlBase __result)
         {
             var config = Config.Current;
-            if (!config.EnableTextContext || !__instance.HasFocus)
+            if (!config.EnableTextContext || !__instance.HasFocus || HandedToTerminal)
                 return true;
 
             // The text before the first edit; also a text that changed unseen

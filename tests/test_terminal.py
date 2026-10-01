@@ -19,12 +19,12 @@ import pytest
 
 import rig
 from conftest import wait_until
-from se_remote import CallOp
 
 BLOCK = rig.TURRET_CONTROLLER
 BLOCK_NAME = "Undo Turret Controller"
 CHECKBOX = "EnableTargetLocking"
 SLIDER = "MultiplierAz"
+INFO_PAGE = 3
 # Station cells: where the character stands, and the console screen it looks at
 STAND = (BLOCK[0], 1.0, BLOCK[2] - 1.0)
 AIM = (BLOCK[0], BLOCK[1] + 0.3, BLOCK[2])
@@ -217,9 +217,7 @@ def test_block_name(game):
 
 
 def test_grid_name(game):
-    """Renamed through Remote's grid call, which sends the same request as the OK
-    button of the Info tab. Switching to that tab through the Remote API crashes
-    the client (SE1-0071)."""
+    """Renamed on the Info tab, with its text box and OK button"""
 
     def name():
         return game.api.get_grid(game.station)["name"]
@@ -227,13 +225,18 @@ def test_grid_name(game):
     renamed = "Undo Renamed Station"
     label = f"renamed grid {rig.STATION_NAME} to {renamed}"
     last = game.last_node_id("terminal")
-    game.api.call(
-        [CallOp.grid_method(game.station, "SetCustomName", {"name": renamed})]
-    ).call(0)
-    recorded(game, last, label)
-    assert name() == renamed
+    with terminal(game) as screen:
+        game.api.control_set("TerminalTabs", INFO_PAGE, screen=screen)
+        wait_until(
+            lambda: control(game, screen, "RenameShipText")["properties"]["text"]
+            == rig.STATION_NAME,
+            "the Info page",
+        )
+        game.api.control_set("RenameShipText", renamed, screen=screen)
+        game.api.control_click(name="RenameShipButton", screen=screen)
+        recorded(game, last, label)
+        assert name() == renamed
 
-    with terminal(game):
         assert game.undo() == f"Undo: {label}"
         assert name() == rig.STATION_NAME
         assert game.redo() == f"Redo: {label}"

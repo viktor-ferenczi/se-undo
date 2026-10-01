@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using ClientPlugin.Apply;
 using ClientPlugin.History;
 using ClientPlugin.Session;
+using ClientPlugin.Text;
 using HarmonyLib;
 using Sandbox.Engine;
 using Sandbox.Game;
@@ -140,12 +141,14 @@ public static class InputPatches
         {
             // With the cursor in a text field the keys are that field's own: the
             // plugin's text history in a single line box, the vanilla undo in a
-            // multi line one. The terminal history takes them once focus is elsewhere.
+            // multi line one. The terminal history takes them once focus is elsewhere,
+            // or also from a single line box when the separate text undo option is off.
             var document = UndoSession.Document;
             if (
                 document == null
                 || !Config.Current.EnableTerminalContext
                 || __instance.FocusedControl is MyGuiControlTextbox
+                    && !TextHistories.HandedToTerminal
                 || __instance.FocusedControl is MyGuiControlMultilineEditableText
             )
                 return;

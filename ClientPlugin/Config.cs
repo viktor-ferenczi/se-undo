@@ -37,6 +37,7 @@ public class Config : INotifyPropertyChanged
     private bool enableBuildContext = true;
     private bool enableTerminalContext = true;
     private bool enableTextContext = true;
+    private bool separateTextUndoInTerminal = true;
     private int maxNodesBuild = 200;
     private int maxNodesTerminal = 200;
     private int maxNodesText = 100;
@@ -138,6 +139,15 @@ public class Config : INotifyPropertyChanged
     {
         get => enableTextContext;
         set => SetField(ref enableTextContext, value);
+    }
+
+    [Checkbox(
+        description: "On: a text box in the terminal has its own undo while the cursor is in it. Off: the keys always act on the terminal history there"
+    )]
+    public bool SeparateTextUndoInTerminal
+    {
+        get => separateTextUndoInTerminal;
+        set => SetField(ref separateTextUndoInTerminal, value);
     }
 
     [Slider(

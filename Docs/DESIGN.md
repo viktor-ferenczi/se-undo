@@ -149,6 +149,8 @@ keys back to the terminal. The value a text field sets is still part of the term
 history as a whole: a rename typed into the Name box is one terminal node. The
 terminal's control panel page opens with the cursor in the block search box, so the
 keys act on the terminal only after the focus moved to another control.
+The config option "Separate text undo in the terminal" switches this off for the
+terminal's single line boxes: the keys then always act on the terminal history.
 
 Default bindings are Ctrl-Z and Ctrl-Y in every context. This takes relative dampeners
 and "toggle all reactors" away from their default keys while the plugin is enabled, so
@@ -532,6 +534,7 @@ other tunables.
 | Relative dampeners binding | Ctrl-Shift-Z | Replacement for the displaced vanilla `DAMPING_RELATIVE`; clear to drop it |
 | Toggle all reactors binding | Ctrl-Shift-Y | Replacement for the displaced vanilla `TOGGLE_REACTORS_ALL`; clear to drop it |
 | Enable Build context, Terminal context, Text context | on | Per context switch; a disabled context neither records nor takes the keys |
+| Separate text undo in the terminal | on | On: a single line text box of the terminal has its own undo while the cursor is in it, section 3. Off: Ctrl-Z and Ctrl-Y act on the terminal history there too, and those boxes get no text undo. Multi line fields keep the vanilla undo either way |
 | Max nodes: Build, Terminal | 200 | Node cap per persisted history |
 | Max nodes: Text | 100 | Per text box |
 | Grid store budget per world MB | 512 | Section 9 retention, per world folder |
@@ -655,7 +658,7 @@ Coverage, one test per row, each followed by redo where it applies:
 | Paste into a grid then undo | look at the wall, Ctrl-C, Ctrl-V, aim at the wall so the preview snaps onto its face, left button as raw gameplay input (`/v1/input/state`; the GUI click endpoint does not reach the clipboard) | the 9 merged cells exist; undo removes only them, redo puts them back |
 | New grid from one block then undo | armor block into toolbar slot 1, `D1`, look into open air, left button | the new grid; undo removes it, redo brings it back under the same entity id |
 | Terminal property | open the turret controller's terminal with the injected F key, Tab out of the block search box, `control/set` on its target locking checkbox and, three times like a drag, on a slider; also the `property` set op with the terminal closed, undone after opening it | `property` get op, the checkbox control following the undo, one node for the three slider values |
-| Block name, grid name | terminal Name text box via `control/set`, twice, and the `custom_name` set op; grid name via the grid call `SetCustomName`, which sends the request the Info tab sends. Switching to the Info tab through the Remote API crashes the client (SE1-0071) | block detail, `grid` get op, one node per rename |
+| Block name, grid name | terminal Name text box via `control/set`, twice, and the `custom_name` set op; grid name via the Info tab's text box and OK button. Renaming on the Info tab needs the Remote fix of SE1-0071 | block detail, `grid` get op, one node per rename |
 | Text box | type two words into the terminal's block search box via `input/type`, with a pause longer than the coalescing window between them, then Ctrl-Z and Ctrl-Y with the box focused, more of them than there are steps; then Tab and Ctrl-Z | `properties.text` of the control after each step; the terminal history and the last notification unchanged while the box has the cursor, the terminal answering after the Tab |
 | Limits | 210 builds, expect 200 nodes in the status file and the oldest gone | status file |
 | Tree option | build twice, undo twice, build again, undo, redo | status file: the abandoned branch is kept next to the new one, redo follows the branch visited last; world state |
