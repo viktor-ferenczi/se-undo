@@ -199,7 +199,7 @@ public class Config : INotifyPropertyChanged
     }
 
     [Checkbox(
-        description: "Restore removed blocks with their settings when creative rights allow it, "
+        description: "Restore removed blocks with their settings in creative or with creative tools, "
             + "off always rebuilds them from the definition"
     )]
     public bool RestoreRemovedBlocksWithFullState

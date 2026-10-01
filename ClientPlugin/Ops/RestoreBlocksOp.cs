@@ -5,7 +5,6 @@ using ClientPlugin.Apply;
 using ClientPlugin.History;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Multiplayer;
-using Sandbox.Game.World;
 using VRage;
 using VRage.Game;
 using VRage.Utils;

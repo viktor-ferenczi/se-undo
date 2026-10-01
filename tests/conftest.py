@@ -7,6 +7,7 @@ UNDO_KEEP=1 leaves the client running after the run; both help while iterating.
 from __future__ import annotations
 
 import os
+import shutil
 
 import pytest
 
@@ -21,6 +22,8 @@ def game():
     try:
         if not attach:
             rig.stop()
+            # The grid stores of the previous run, keyed by world folder and id
+            shutil.rmtree(rig.APPDATA / "Undo" / "Worlds", ignore_errors=True)
             rig.prepare_world()
             rig.launch()
             api.wait_for_api(max_wait=240)

@@ -412,7 +412,7 @@ def station_point(cell) -> list[float]:
 
 def prepare_world(world: Path = WORLD, mode: str = "Creative") -> Path:
     """Fresh copy of the Remote suite's Earth world with the test station."""
-    # The grid store of the previous run, keyed by the same world folder and id
+    # A grid store an earlier copy of this world left, keyed by folder name and id
     for store in (APPDATA / "Undo" / "Worlds").glob(f"{world.name}*"):
         shutil.rmtree(store)
     if world.exists():
