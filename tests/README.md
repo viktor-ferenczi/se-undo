@@ -56,4 +56,5 @@ backup restored through the game's Backups screen.
 
 `UNDO_KEEP=1` leaves the client running, `UNDO_ATTACH=1` reuses it on the next
 run. `UNDO_WINDOWED=1` starts it with a real window, for checks done by hand. The plugin writes `~/.se-test/undo-data/Undo/status.json` after every history
-change; the tests read the histories and the last notification from there.
+change; the tests read the histories, the last notification and the rows of the grid
+history dialog from there.

@@ -599,10 +599,10 @@ other tunables.
 | Persist on multiplayer client | on | Section 8, client side storage |
 | Client storage root | `<UserDataPath>/Undo` | Root of the grid store (`Worlds/`) and the client histories (`Servers/`); empty in the config means the default |
 | Client autosave interval s | 60 | Minimum time between client side writes after a change |
-| Client history retention days | 90 | Files older than this are deleted at plugin start |
+| Client history retention days | 90 | A client session's world folder with nothing written for this long is deleted at plugin start |
 | Notifications | on | HUD text on undo, redo and refusals |
 | Notification duration ms | 2000 | HUD text lifetime |
-| Debug status file | off | Writes `<Client storage root>/status.json` after every history change, for the tests |
+| Debug status file | off | Writes `<Client storage root>/status.json` after every history change, for the tests: both histories, the last notification, and the rows of the grid history dialog while it is open |
 | Log level | Info | Plugin log verbosity in the game log |
 
 ## 12. Code structure
@@ -679,7 +679,10 @@ once at start; the linear behavior is covered by the unit tests. Block links are
 from the sector file after `POST /v1/game/save`, since the Remote API has no endpoint
 for toolbars, controller lists or groups. The status file also carries the size of the
 serialized undo document, which runs the XML serialization of the real ops in game,
-and per node the "reference lost" flag and the store entries it refers to.
+and per node the "reference lost" and barrier flags and the store entries it refers
+to. While the grid history dialog is open it also has the dialog's sort keys and rows.
+The run's `Undo.cfg` sets the per world grid store budget to 1 MB, below the slider's
+minimum in the config dialog, for the retention and oversized rows.
 
 The grid tests need a clear line of sight, and the player spawns inside the Earth
 base, where every ray ends at a wall within 15 m. They teleport the character onto
