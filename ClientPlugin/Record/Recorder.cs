@@ -50,7 +50,8 @@ public static class Recorder
 
     public static void Hold() => held++;
 
-    public static void Release() => held--;
+    // Not below zero: an answer can arrive after the session and its holds are gone
+    public static void Release() => held = Math.Max(0, held - 1);
 
     public static void Reset()
     {
@@ -128,6 +129,9 @@ public static class Recorder
     // In place of an action whose grid backup was dropped, design section 9
     public static void CommitBarrier(string label)
     {
+        if (UndoSession.Document == null)
+            return;
+
         UndoSession.Document.Build.RecordBarrier(label, DateTime.UtcNow);
         Log.Debug($"Recorded a barrier: {label}");
         UndoSession.Changed();

@@ -161,6 +161,10 @@ public sealed class RetentionTests : IDisposable
 
         // Stored already: staging it again takes no new space
         Assert.False(store.IsStaged(store.Stage("big", new StoreRow { TimestampUtc = Start })));
+
+        // A staged entry left behind by a game that ended is removed on the next start
+        var left = store.Stage("left behind", new StoreRow { TimestampUtc = Start });
+        Assert.False(new GridStoreFolder(store.Folder).IsStaged(left));
     }
 
     [Theory]

@@ -131,3 +131,110 @@ def test_save_as_takes_the_history_along(game):
     folder = save(game, SAVE_AS)
     assert folder != rig.WORLD
     assert saved_labels(folder / FILE) == labels
+
+
+# ---------------------------------------------------------------------------
+# The load menu: its Save As copies the world folder, its Backups screen restores
+# ---------------------------------------------------------------------------
+
+MENU_COPY = "UndoMenuCopyTest"
+
+
+def top(api) -> dict:
+    return api.list_screens()[-1]
+
+
+def wait_screen(api, kind: str) -> int:
+    return wait_until(lambda: top(api)["type"] == kind and top(api), kind, timeout=60)[
+        "index"
+    ]
+
+
+def load_menu(api) -> int:
+    """The load game screen of the title menu, leaving the session without saving"""
+    if top(api)["type"] != "MyGuiScreenLoadSandbox":
+        rig.focus_gameplay(api)
+        api.key("Escape")
+        menu = wait_screen(api, "MyGuiScreenMainMenu")
+        api.control_click(name="ExitToMainMenu", screen=menu)
+        api.control_click(text="No", screen=wait_screen(api, "MyGuiScreenMessageBox"))
+        wait_until(
+            lambda: [s["type"] for s in api.list_screens()]
+            == ["MyGuiScreenIntroVideo", "MyGuiScreenMainMenu"],
+            "the title menu",
+            timeout=60,
+        )
+        time.sleep(1)
+        api.control_click(name="LoadWorld", screen=top(api)["index"])
+    screen = wait_screen(api, "MyGuiScreenLoadSandbox")
+
+    # The list of saves is filled a moment after the screen opens, and again
+    # after Save As; a click on the name selects nothing before that
+    def selected():
+        api.control_click(text=rig.WORLD_NAME, screen=screen)
+        return browser(api, screen)["properties"]["selectedRowIndex"] is not None
+
+    wait_until(selected, "the test world's row", interval=0.5)
+    return screen
+
+
+def browser(api, screen: int) -> dict:
+    return next(
+        c for c in api.get_controls(screen) if c.get("name") == "SaveBrowserTable"
+    )
+
+
+def test_save_as_from_the_load_menu_copies_the_history(game):
+    api = game.api
+    shutil.rmtree(rig.SAVES / MENU_COPY, ignore_errors=True)
+    screen = load_menu(api)
+
+    api.control_click(name="SaveAs", screen=screen)
+    dialog = wait_screen(api, "MyGuiScreenSaveAs")
+    # The dialog proposes the name of the world it copies. That is the first row's
+    # here, whatever was selected: the save browser keeps a multi selection of its
+    # own, which Remote's row selection does not change (SE1-0073).
+    proposed = next(
+        c for c in api.get_controls(dialog) if c.get("type") == "MyGuiControlTextbox"
+    )
+    source = rig.SAVES / proposed["properties"]["text"] / FILE
+    assert source.exists()
+    api.control_set("Textbox", MENU_COPY, screen=dialog)
+    api.control_click(text="OK", screen=dialog)
+    copy = rig.SAVES / MENU_COPY / FILE
+    wait_until(copy.exists, "the copied world", timeout=60)
+    wait_screen(api, "MyGuiScreenLoadSandbox")
+    assert copy.read_bytes() == source.read_bytes()
+
+
+def test_backup_restore_through_the_load_menu(game):
+    """The game's own restore: Backups, pick one, Load"""
+    api = game.api
+    # A backup whose history differs from the one in the world folder now, so the
+    # file can only be there afterwards because the game copied it back
+    backups = sorted((rig.WORLD / "Backup").iterdir(), reverse=True)
+    current = (rig.WORLD / FILE).read_bytes()
+    line = next(i for i, b in enumerate(backups) if (b / FILE).read_bytes() != current)
+    wanted = backups[line] / FILE
+
+    screen = load_menu(api)
+    api.control_click(name="Backup", screen=screen)
+    time.sleep(1)
+    # Row 0 leads back to the worlds, the backups follow, newest first
+    api.control_set("SaveBrowserTable", line + 1, screen=screen)
+    marker = rig.STATUS_FILE.stat().st_mtime_ns
+    api.control_click(name="Load", screen=screen)
+    wait_until(
+        lambda: rig.STATUS_FILE.stat().st_mtime_ns != marker,
+        "the restored world to start",
+        timeout=120,
+    )
+    rig.wait_world(api)
+    rig.ensure_character(api)
+    rig.focus_gameplay(api)
+    api.unpause()
+
+    assert (rig.WORLD / FILE).read_bytes() == wanted.read_bytes()
+    build = game.build()
+    assert [n["label"] for n in build["nodes"]] == saved_labels(wanted)
+    assert str(build["current"]) == document(wanted).findtext("Build/CurrentId")

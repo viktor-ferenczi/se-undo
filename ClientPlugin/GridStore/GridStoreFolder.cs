@@ -87,6 +87,13 @@ public sealed class GridStoreFolder
     {
         Folder = folder;
         Index = LoadIndex();
+
+        // Staged entries nobody committed: the game ended while a question was open
+        if (Directory.Exists(folder))
+        {
+            foreach (var stale in Directory.GetFiles(folder, "*" + EntryExtension + ".tmp"))
+                File.Delete(stale);
+        }
     }
 
     private string IndexPath => Path.Combine(Folder, IndexFileName);
