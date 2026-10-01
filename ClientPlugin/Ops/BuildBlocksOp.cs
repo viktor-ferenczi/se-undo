@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using ClientPlugin.Apply;
 using ClientPlugin.History;
+using Sandbox.Game.Entities;
 using Sandbox.Game.Multiplayer;
 using VRage.Utils;
 using VRageMath;
@@ -19,31 +21,50 @@ public class BuildBlocksOp : Op
 
     public override IEnumerable<int> GridHandles() => new[] { Grid };
 
-    public override string Validate(GridRegistry grids) =>
-        grids.ResolveGrid(Grid) == null ? GameAccess.GridMissing : null;
+    public override string Validate(GridRegistry grids)
+    {
+        var grid = grids.ResolveGrid(Grid);
+        if (grid == null)
+            return GameAccess.GridMissing;
+        return Permissions.HasComponentsFor(grid, Locations(Blocks))
+            ? null
+            : Permissions.MissingComponents;
+    }
 
     public override Func<bool> Apply(GridRegistry grids)
     {
         var grid = grids.ResolveGrid(Grid);
-        var owner = GameAccess.LocalIdentityId;
-
-        // The request checks limits and DLC by the first location's definition
-        foreach (var group in Blocks.GroupBy(b => b.Definition))
-        {
-            var locations = new HashSet<Sandbox.Game.Entities.MyCubeGrid.MyBlockLocation>(
-                group.Select(b => b.ToLocation(owner))
-            );
-            grid.BuildBlocks(
-                ColorHsv,
-                MyStringHash.GetOrCompute(Skin),
-                locations,
-                GameAccess.LocalCharacterId,
-                owner
-            );
-        }
+        Build(grid, Blocks, ColorHsv, Skin);
 
         if (Sync.IsServer)
             return null;
         return () => Blocks.All(b => grid.BlockAt(b.Min) != null);
+    }
+
+    public static HashSet<MyCubeGrid.MyBlockLocation> Locations(
+        IEnumerable<BlockPlacement> blocks
+    ) =>
+        new HashSet<MyCubeGrid.MyBlockLocation>(
+            blocks.Select(b => b.ToLocation(GameAccess.LocalIdentityId))
+        );
+
+    // The cube builder's request. Without creative tools in survival the server
+    // builds construction sites and takes the components from the character.
+    public static void Build(
+        MyCubeGrid grid,
+        IEnumerable<BlockPlacement> blocks,
+        Vector3 colorHsv,
+        string skin
+    )
+    {
+        // The request checks limits and DLC by the first location's definition
+        foreach (var group in blocks.GroupBy(b => b.Definition))
+            grid.BuildBlocks(
+                colorHsv,
+                MyStringHash.GetOrCompute(skin),
+                Locations(group),
+                GameAccess.LocalCharacterId,
+                GameAccess.LocalIdentityId
+            );
     }
 }

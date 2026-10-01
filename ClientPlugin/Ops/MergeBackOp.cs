@@ -32,12 +32,12 @@ public class MergeBackOp : Op
         if (grids.ResolveGrid(Grid) == null)
             return GameAccess.GridMissing;
 
+        // Joining grids for free is nothing a regular survival player can do
+        if (!Permissions.Creative)
+            return Permissions.NeedsCreativeTools;
+
         if (!Sync.IsServer)
-        {
-            if (!Pieces.All(p => UndoSession.Store.Has(p.Entry)))
-                return PasteGridsOp.BackupGone;
-            return Permissions.HasCreativeRights ? null : Permissions.NeedsCreativeTools;
-        }
+            return Pieces.All(p => UndoSession.Store.Has(p.Entry)) ? null : PasteGridsOp.BackupGone;
 
         return Pieces.All(p => grids.ResolveGrid(p.Grid) != null)
             ? null
@@ -64,6 +64,8 @@ public class MergeBackOp : Op
             return null;
         }
 
+        // The pieces come back as new blocks; links across their boundary are gone
+        Executor.Remark(Permissions.LinksLost);
         foreach (var split in Pieces)
         {
             var piece = grids.ResolveGrid(split.Grid);

@@ -65,6 +65,9 @@ GAME_ARGS = [
 SAVES = APPDATA / "Saves" / "1234567891011"
 WORLD_NAME = "UndoTestEarth"
 WORLD = SAVES / WORLD_NAME
+# The same world in survival, for the permission tests
+SURVIVAL_WORLD_NAME = "UndoTestSurvival"
+SURVIVAL_WORLD = SAVES / SURVIVAL_WORLD_NAME
 TEMPLATE_ZIP = REMOTE_REPO / "Worlds" / "RemoteAPITestEarthPlanet.zip"
 
 # Undo options for the run. Everything else keeps its default. The tree option is
@@ -388,36 +391,35 @@ def station_point(cell) -> list[float]:
     ]
 
 
-def prepare_world() -> Path:
+def prepare_world(world: Path = WORLD, mode: str = "Creative") -> Path:
     """Fresh copy of the Remote suite's Earth world with the test station."""
     # The grid store of the previous run, keyed by the same world folder and id
-    shutil.rmtree(APPDATA / "Undo" / "Worlds", ignore_errors=True)
-    if WORLD.exists():
-        shutil.rmtree(WORLD)
-    SAVES.mkdir(parents=True, exist_ok=True)
+    for store in (APPDATA / "Undo" / "Worlds").glob(f"{world.name}*"):
+        shutil.rmtree(store)
+    if world.exists():
+        shutil.rmtree(world)
+    world.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(TEMPLATE_ZIP) as archive:
-        archive.extractall(SAVES)
-    (SAVES / "RemoteAPITestEarthPlanet").rename(WORLD)
+        archive.extractall(world.parent)
+    (world.parent / "RemoteAPITestEarthPlanet").rename(world)
 
     for name in ("Sandbox.sbc", "Sandbox_config.sbc"):
-        path = WORLD / name
+        path = world / name
         text = path.read_text(encoding="utf-8")
         text = re.sub(
             r"<SessionName>.*?</SessionName>",
-            f"<SessionName>{WORLD_NAME}</SessionName>",
+            f"<SessionName>{world.name}</SessionName>",
             text,
         )
         text = text.replace("<TrashRemovalEnabled>true", "<TrashRemovalEnabled>false")
-        text = re.sub(
-            r"<GameMode>\w+</GameMode>", "<GameMode>Creative</GameMode>", text
-        )
+        text = re.sub(r"<GameMode>\w+</GameMode>", f"<GameMode>{mode}</GameMode>", text)
         text = text.replace("<StationVoxelSupport>false", "<StationVoxelSupport>true")
         # Pasting in creative needs it, by hand and for undo
         text = text.replace("<EnableCopyPaste>false", "<EnableCopyPaste>true")
         text = text.replace("<EnableIngameScripts>false", "<EnableIngameScripts>true")
         path.write_text(text, encoding="utf-8")
 
-    sector = WORLD / "SANDBOX_0_0_0_.sbs"
+    sector = world / "SANDBOX_0_0_0_.sbs"
     text = sector.read_text(encoding="utf-8")
 
     position, forward, up = station_frame(text)
@@ -427,8 +429,8 @@ def prepare_world() -> Path:
     sector.write_text(text, encoding="utf-8")
 
     # The binary sector would win over the edited XML
-    (WORLD / "SANDBOX_0_0_0_.sbsB5").unlink(missing_ok=True)
-    return WORLD
+    (world / "SANDBOX_0_0_0_.sbsB5").unlink(missing_ok=True)
+    return world
 
 
 # ---------------------------------------------------------------------------
@@ -536,15 +538,36 @@ def api() -> RemoteAPI:
     return RemoteAPI(BASE_URL, username="admin", password="SpaceEngineers")
 
 
-def load_world(client: RemoteAPI, timeout: float = 420.0) -> None:
-    """Loads the test world. A bare XML sector first fails with a "needs XML" box;
+def load_world(client: RemoteAPI, world: Path = WORLD, timeout: float = 420.0) -> None:
+    """Loads a test world. A bare XML sector first fails with a "needs XML" box;
     OK retries the load with XML allowed. The session counts as loaded once it
-    stays active over several polls with no message box left."""
+    stays active over several polls with no message box left. Coming from another
+    session, the status file the plugin writes at session start tells the new
+    session from the old one, still reported active while it unloads (SE1-0065)."""
+    leaving = client.get_state().get("active") and STATUS_FILE.exists()
+    marker = STATUS_FILE.stat().st_mtime_ns if leaving else None
     try:
-        client.load(str(WORLD))
+        client.load(str(world))
     except Exception as err:  # noqa: BLE001 -- the load outlives the HTTP timeout
         print(f"load request returned early ({type(err).__name__})")
+    deadline = time.monotonic() + timeout
+    while leaving and STATUS_FILE.stat().st_mtime_ns == marker:
+        # The first load of a bare XML sector stops at the "needs XML" box
+        try:
+            for box in _message_boxes(client):
+                client.control_click(text="OK", screen=box["index"])
+        except Exception:  # noqa: BLE001 -- the API answers 500 while loading
+            pass
+        if time.monotonic() > deadline:
+            raise TimeoutError("The world did not start")
+        time.sleep(1)
     wait_world(client, timeout)
+
+
+def _message_boxes(client: RemoteAPI) -> list[dict]:
+    return [
+        s for s in client.list_screens() if s.get("type") == "MyGuiScreenMessageBox"
+    ]
 
 
 def reload_world(client: RemoteAPI, timeout: float = 420.0) -> None:
@@ -573,11 +596,7 @@ def wait_world(client: RemoteAPI, timeout: float = 420.0) -> None:
     while time.monotonic() < deadline:
         time.sleep(2)
         try:
-            boxes = [
-                s
-                for s in client.list_screens()
-                if s.get("type") == "MyGuiScreenMessageBox"
-            ]
+            boxes = _message_boxes(client)
             for box in boxes:
                 client.control_click(text="OK", screen=box["index"])
             stable = stable + 1 if not boxes and client.get_state().get("active") else 0

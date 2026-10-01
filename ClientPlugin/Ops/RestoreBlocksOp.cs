@@ -13,7 +13,7 @@ using VRageMath;
 
 namespace ClientPlugin.Ops;
 
-// Puts removed blocks back. With creative rights and the full state option on:
+// Puts removed blocks back. In creative, or with creative tools, and the full state option on:
 // server, one BuildBlockRequestInternal per block with the saved builder and entity
 // id, then the block links; client, one paste into the grid, which keeps settings but
 // assigns new ids. Otherwise the blocks are rebuilt from their definition.
@@ -28,8 +28,25 @@ public class RestoreBlocksOp : Op
 
     public override IEnumerable<int> GridHandles() => new[] { Grid };
 
-    public override string Validate(GridRegistry grids) =>
-        grids.ResolveGrid(Grid) == null ? GameAccess.GridMissing : null;
+    private static bool FullState =>
+        Config.Current.RestoreRemovedBlocksWithFullState && Permissions.Creative;
+
+    public override string Validate(GridRegistry grids)
+    {
+        var grid = grids.ResolveGrid(Grid);
+        if (grid == null)
+            return GameAccess.GridMissing;
+        if (FullState)
+            return null;
+
+        var saved = BuilderXml.Read<MyObjectBuilder_CubeGrid>(BlocksXml);
+        return Permissions.HasComponentsFor(
+            grid,
+            BuildBlocksOp.Locations(saved.CubeBlocks.Select(Placement))
+        )
+            ? null
+            : Permissions.MissingComponents;
+    }
 
     public override Func<bool> Apply(GridRegistry grids)
     {
@@ -38,7 +55,7 @@ public class RestoreBlocksOp : Op
         var mins = saved.CubeBlocks.Select(b => (Vector3I)b.Min).ToList();
         Func<bool> allBack = () => mins.All(min => grid.BlockAt(min) != null);
 
-        if (Config.Current.RestoreRemovedBlocksWithFullState && Permissions.HasCreativeRights)
+        if (FullState)
         {
             if (Sync.IsServer)
             {
@@ -53,27 +70,21 @@ public class RestoreBlocksOp : Op
                 GameAccess.LocalCharacterId,
                 instantBuild: true
             );
+            // The pasted blocks get new ids, so what pointed at the old ones is lost
             if (Links.Count != 0)
-                Notify.Show("Restored on a server: some block links are lost");
+                Executor.Remark(Permissions.LinksLost);
             return allBack;
         }
 
         foreach (var group in saved.CubeBlocks.GroupBy(b => (b.ColorMaskHSV, b.SkinSubtypeId)))
-        {
-            var owner = GameAccess.LocalIdentityId;
-            var locations = new HashSet<MyCubeGrid.MyBlockLocation>(
-                group.Select(b => Placement(b).ToLocation(owner))
-            );
-            grid.BuildBlocks(
+            BuildBlocksOp.Build(
+                grid,
+                group.Select(Placement),
                 group.Key.ColorMaskHSV,
-                MyStringHash.GetOrCompute(group.Key.SkinSubtypeId),
-                locations,
-                GameAccess.LocalCharacterId,
-                owner
+                group.Key.SkinSubtypeId
             );
-        }
-        if (!MySession.Static.CreativeMode && !Permissions.HasCreativeRights)
-            Notify.Show("Removed blocks restored as construction sites");
+        if (!Permissions.Creative)
+            Executor.Remark(Permissions.ConstructionSites);
         return Sync.IsServer ? null : allBack;
     }
 

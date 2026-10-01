@@ -75,6 +75,7 @@ public class UndoSession : MySessionComponentBase
     {
         TerminalContextPatches.PatchControls();
         Document = Load();
+        Log.Info($"Session mode: {Permissions.Mode}");
         Configure();
         Changed();
         unsaved = false;
@@ -244,7 +245,13 @@ public class UndoSession : MySessionComponentBase
             Directory.CreateDirectory(StorageRoot);
             File.WriteAllText(
                 Path.Combine(StorageRoot, "status.json"),
-                StatusFile.ToJson(histories, LastMessage, size, GridHistoryScreen.StatusJson())
+                StatusFile.ToJson(
+                    histories,
+                    LastMessage,
+                    size,
+                    GridHistoryScreen.StatusJson(),
+                    Permissions.Mode.ToString()
+                )
             );
         }
         catch (Exception e)

@@ -42,6 +42,15 @@ class Game:
         except Exception:  # noqa: BLE001 -- NOT_FOUND
             return None
 
+    def build_ratio(self, pos, grid=None) -> float:
+        """How far the block at this cell is built, 1 when complete"""
+        grid = grid or self.station
+        result = self.api.batch(gets=[GetOp.cube_list(grid, limit=1000)])
+        cubes = result.get(0)
+        cubes = cubes.get("cubes", cubes) if isinstance(cubes, dict) else cubes
+        cube = next(c for c in cubes if tuple(c["cellMin"]) == tuple(pos))
+        return float(cube["buildLevelRatio"])
+
     # --- plugin state --------------------------------------------------------
 
     @staticmethod

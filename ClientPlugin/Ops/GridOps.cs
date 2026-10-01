@@ -62,6 +62,8 @@ public class PasteGridsOp : Op
                 var grid = (MyCubeGrid)
                     MyEntities.CreateFromObjectBuilderAndAdd(builders[i], fadeIn: false);
                 grids.Rebind(Grids[i], grid.EntityId);
+                if (grid.BlocksCount != builders[i].CubeBlocks.Count)
+                    Executor.Remark(Permissions.WithChanges);
             }
             return null;
         }
@@ -83,8 +85,13 @@ public class PasteGridsOp : Op
             var done = match.Done;
             for (var i = 0; i < Grids.Count; i++)
             {
-                if (match.Grids[i] != null)
-                    grids.Rebind(Grids[i], match.Grids[i].EntityId);
+                if (match.Grids[i] == null)
+                    continue;
+                grids.Rebind(Grids[i], match.Grids[i].EntityId);
+
+                // The server strips blocks with a missing DLC or skin, and scripts
+                if (done && match.Grids[i].BlocksCount != builders[i].CubeBlocks.Count)
+                    Executor.Remark(Permissions.WithChanges);
             }
             return done && match.AllMatched;
         };

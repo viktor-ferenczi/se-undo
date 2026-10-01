@@ -16,6 +16,23 @@ public static class Executor
 
     public static void Redo(UndoHistory history, GridRegistry grids) => Step(history, grids, false);
 
+    // What an op has to say about its result, shown with the step's notification:
+    // "restored as construction sites", "restored with changes" and the like
+    private static readonly List<string> remarks = new List<string>();
+
+    public static void Remark(string text)
+    {
+        if (!remarks.Contains(text))
+            remarks.Add(text);
+    }
+
+    private static string TakeRemarks()
+    {
+        var text = remarks.Count == 0 ? "" : $" ({string.Join(", ", remarks)})";
+        remarks.Clear();
+        return text;
+    }
+
     private static void Step(UndoHistory history, GridRegistry grids, bool undo)
     {
         var verb = undo ? "Undo" : "Redo";
@@ -76,6 +93,7 @@ public static class Executor
         // grids, cheap for a ship, costly for a large station
         Func<Op> saveSnapshot = null;
         var checks = new List<Func<bool>>();
+        remarks.Clear();
         try
         {
             if (!Sync.IsServer && !viaSnapshot)
@@ -120,7 +138,7 @@ public static class Executor
         else if (viaSnapshot)
             DropSnapshot(node);
 
-        Notify.Show($"{verb}: {node.Label}");
+        Notify.Show($"{verb}: {node.Label}{TakeRemarks()}");
     }
 
     public static void Update(UndoHistory history)
@@ -130,13 +148,19 @@ public static class Executor
             return;
 
         var node = finished.Node;
+        var verb = finished.IsUndo ? "Undo" : "Redo";
         if (!finished.TimedOut)
         {
             if (finished.ViaSnapshot)
                 DropSnapshot(node);
+
+            // What the op learned from the server's answer
+            if (remarks.Count != 0)
+                Notify.Show($"{verb}: {node.Label}{TakeRemarks()}");
             Session.UndoSession.Changed();
             return;
         }
+        remarks.Clear();
 
         // A failed snapshot restore keeps its snapshot for the next try
         if (finished.SaveSnapshot != null)
@@ -151,7 +175,7 @@ public static class Executor
                 Log.Error($"Saving the group snapshot of {node.Label} failed: {e}");
             }
         }
-        Notify.Show($"{(finished.IsUndo ? "Undo" : "Redo")} of {node.Label}: result unknown");
+        Notify.Show($"{verb} of {node.Label}: result unknown");
     }
 
     private static void DropSnapshot(Node node)
