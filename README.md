@@ -2,15 +2,15 @@
 
 Space Engineers 1 client plugin for [Pulsar](https://github.com/SpaceGT/Pulsar).
 
-[![Undo and redo while editing a ship](https://img.youtube.com/vi/JB50cYMgxro/maxresdefault.jpg)](https://youtu.be/JB50cYMgxro)
+[![Undo after editing a ship](https://img.youtube.com/vi/JB50cYMgxro/maxresdefault.jpg)](https://youtu.be/fS_KpBiItiU)
 
-Video: [undo and redo while editing a ship](https://youtu.be/JB50cYMgxro)
+Video: [undo after editing a ship](https://youtu.be/fS_KpBiItiU)
 
 [![Undo and redo of terminal changes](https://img.youtube.com/vi/xcvybKVaNjA/sddefault.jpg)](https://youtu.be/xcvybKVaNjA)
 
 Video: [undo and redo of terminal changes](https://youtu.be/xcvybKVaNjA)
 
-Ctrl-Z reverts the last operation in the current context, Ctrl-Y applies it again.
+Ctrl-Z reverts the latest operation in the current context, Ctrl-Y applies it again.
 Covered: placing and removing blocks, painting and skins, pasting and deleting grids,
 terminal property changes, block and grid names, Custom Data, block toolbars, programmable
 block programs and single line text fields. The history is saved with the world and follows its backups.
