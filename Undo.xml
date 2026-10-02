@@ -20,6 +20,9 @@ The history is saved with the world and follows its backups. Works offline, when
 
 Relative dampeners and toggle all reactors move to Ctrl-Shift-Z and Ctrl-Shift-Y. All keys can be changed in the plugin settings.
 
+Video, undo and redo while editing a ship:
+https://www.youtube.com/watch?v=JB50cYMgxro
+
 Please see the full documentation on GitHub:
 https://github.com/viktor-ferenczi/se-undo
 
