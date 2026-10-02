@@ -6,8 +6,6 @@ Space Engineers 1 client plugin for [Pulsar](https://github.com/SpaceGT/Pulsar).
 
 Video: [undo after editing a ship](https://youtu.be/fS_KpBiItiU)
 
-[![Undo and redo of terminal changes](https://img.youtube.com/vi/xcvybKVaNjA/sddefault.jpg)](https://youtu.be/xcvybKVaNjA)
-
 Video: [undo and redo of terminal changes](https://youtu.be/xcvybKVaNjA)
 
 Ctrl-Z reverts the latest operation in the current context, Ctrl-Y applies it again.
