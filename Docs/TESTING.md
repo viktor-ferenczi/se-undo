@@ -7,21 +7,22 @@ headless.
 | What | Command | Time |
 |---|---|---|
 | Unit tests: history, storage, grid store, text history | `dotnet test UndoTests` | seconds |
-| In game suite, offline client | `uv run pytest` | about 3 minutes |
+| In game suite, offline clients | `uv run python tests/run_pieces.py` | about 6 minutes |
 | Dedicated server suite, server plus one client | `uv run pytest tests/ds` | about 4 minutes |
 
-The two game suites use different folders and ports and can run at the same time. A
+The game suites use different folders and ports and can run at the same time. A
 client in a world takes about 5.5 GB of RAM, the server about 3 GB.
 
 ## Offline rig
 
-Setup and details are in [tests/README.md](../tests/README.md): the Pulsar folder
-`~/.se-test/undo`, user data `~/.se-test/undo-data`, Remote port 24176. The suite
-copies the Remote plugin's Earth world, adds the test grids and loads it. The files
-run in name order and share the world; `test_world_save.py` leaves the session and
-`test_z_survival.py` loads a survival copy of the world for the permission tests.
+Setup and details are in [tests/README.md](../tests/README.md). Every test file is
+a session of its own on a client slot: slot 0 is the Pulsar folder `~/.se-test/undo`
+with user data `~/.se-test/undo-data` and Remote port 24176, further slots are cloned
+from it. `tests/run_pieces.py` runs the 19 files side by side, six clients at a time
+by default, and only starts a client while 16 GB of RAM stay available. Each file
+copies the Remote plugin's Earth world, adds the test grids and loads it.
 
-`UNDO_KEEP=1` leaves the client running, `UNDO_ATTACH=1` reuses it.
+`UNDO_KEEP=1` leaves the client of a file running, `UNDO_ATTACH=1` reuses it.
 
 ## Dedicated server rig
 
