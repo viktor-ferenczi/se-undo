@@ -388,6 +388,17 @@ Costs: every removal of such a block stores the group, which for a large ship is
 few hundred KB compressed, and the undo re-creates the whole group. A player seated
 in the group is thrown out of the seat by that, like on the undo of a delete.
 
+### Custom Data
+
+Added on 2026-10-02. Custom Data is no terminal value control: the terminal has a
+button that opens a text dialog, and the text lives in the block's mod storage under
+a fixed id. The dialog, the mod API and scripts all set `MyTerminalBlock.CustomData`,
+so a prefix on that setter records the change into the terminal history
+(`SetCustomDataOp`, the text gzip compressed), under the same rules as the other
+terminal changes: with the terminal open, or always with the "record outside the
+terminal" option. What arrives from the server goes past the setter and is not
+recorded.
+
 ### What a restored block keeps, and what is restored as a whole group
 
 Reworked on 2026-10-02 (SE1-0078). The test for all of it is the saved world: a grid
@@ -933,6 +944,7 @@ Rows added then, one test each unless noted:
 | Inventory | the container removed and restored twice over undo and redo; a container placed, filled from another one through `inventory_transfer`, the placement undone and redone; the same removal in a world with `TemporaryContainers` off | the items are in the container, the cell is free after a replayed removal, nothing is left lying in it |
 | Redo of a placement | a timer placed, renamed, its delay changed; undo, redo | the same entity id and name, the saved sector as before the undo |
 | Ctrl-Z with nothing to undo | empty build history, dampeners off, Ctrl-Z; then a step to undo, Ctrl-Z | the dampeners come on and the plugin says nothing; with a step the key undoes it and the dampeners stay off |
+| Custom Data | set twice through the block's property (`custom_data` set op); typed into the Custom Data dialog of the terminal and confirmed with OK | "changed the custom data of X", a node each; undo back to no custom data, redo |
 | Load edge cases | terminal change and a removed block saved and loaded; a paste undone, saved, loaded, redone; garbage in `Undo.xml.gz`; `<Version>` 999 in it; another world loaded in between; the pasted grid cut out of the sector file | both histories back, the block restored under its id; the grid from the store; an empty history and the log line for each broken file, then a good file from the next save; the other world starts empty and the first has its saved history again; the steps of the missing grid are refused and stay |
 
 Two defects came out of this, SE1-0078 and SE1-0079. Both were fixed on 2026-10-02

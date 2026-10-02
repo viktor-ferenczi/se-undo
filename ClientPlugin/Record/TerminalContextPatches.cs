@@ -214,6 +214,18 @@ public static class TerminalContextPatches
             Recorder.RecordProperty(block, "Name", block.CustomName.ToString(), name ?? "");
     }
 
+    // The Custom Data dialog, the mod API and scripts all set this property. What
+    // arrives from the server goes past the setter and is not recorded.
+    [HarmonyPatch(typeof(MyTerminalBlock), nameof(MyTerminalBlock.CustomData), MethodType.Setter)]
+    private static class CustomDataPatch
+    {
+        private static void Prefix(MyTerminalBlock __instance, string value)
+        {
+            if (Recorder.CanRecordTerminal)
+                Recorder.RecordCustomData(__instance, __instance.CustomData, value);
+        }
+    }
+
     [HarmonyPatch(typeof(MyCubeGrid), nameof(MyCubeGrid.ChangeDisplayNameRequest))]
     private static class GridNamePatch
     {

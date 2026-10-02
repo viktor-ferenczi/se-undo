@@ -123,3 +123,27 @@ public class SetProgramOp : Op
         return null;
     }
 }
+
+// Puts a block's Custom Data back through the property the Custom Data dialog and
+// the mod API set, which syncs it
+public class SetCustomDataOp : Op
+{
+    public BlockRef Block;
+
+    // Gzip compressed text, it can be tens of kilobytes
+    public byte[] Data;
+
+    public override string Validate(GridRegistry grids)
+    {
+        var block = Block.Resolve(grids);
+        if (block == null)
+            return BlockRef.Missing;
+        return block.CanLocalPlayerChangeValue() ? null : Permissions.NotYourBlock;
+    }
+
+    public override Func<bool> Apply(GridRegistry grids)
+    {
+        Block.Resolve(grids).CustomData = Gz.Decompress(Data) ?? "";
+        return null;
+    }
+}

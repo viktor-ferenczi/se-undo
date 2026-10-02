@@ -348,6 +348,23 @@ public static class Recorder
         );
     }
 
+    public static void RecordCustomData(MyTerminalBlock block, string oldData, string newData)
+    {
+        var blockRef = BlockRef.From(block, UndoSession.Document.Grids);
+        var name = block.DisplayNameText;
+        RecordTerminal(
+            "custom data",
+            blockRef.Key,
+            oldData ?? "",
+            newData ?? "",
+            value => new SetCustomDataOp { Block = blockRef, Data = Gz.Compress(value) },
+            (count, _, _) =>
+                count != 1
+                    ? $"changed the custom data of {Plural(count, "block")}"
+                    : $"changed the custom data of {name}"
+        );
+    }
+
     public static void OpenStroke(MyCubeGrid grid)
     {
         if (stroke != null && stroke.Grid != grid)

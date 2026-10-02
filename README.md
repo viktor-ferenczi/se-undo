@@ -8,8 +8,8 @@ Video: [undo and redo while editing a ship](https://youtu.be/JB50cYMgxro)
 
 Ctrl-Z reverts the last operation in the current context, Ctrl-Y applies it again.
 Covered: placing and removing blocks, painting and skins, pasting and deleting grids,
-terminal property changes, block and grid names, programmable block programs and single
-line text fields. The history is saved with the world and follows its backups.
+terminal property changes, block and grid names, Custom Data, programmable block programs
+and single line text fields. The history is saved with the world and follows its backups.
 
 Grids the plugin captures for undo (deleted, pasted, split) are kept under a size budget
 and listed in a grid history dialog, sortable by time, name, block count and more. Double

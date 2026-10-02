@@ -300,3 +300,85 @@ def test_combobox_after_other_controls(game):
         game.api.control_set("Content", 1, screen=screen)
         recorded(game, last, label)
         game.undo()
+
+
+def custom_data(game, cell=LIGHT) -> str:
+    return game.block(cell)["customData"]
+
+
+def test_custom_data(game):
+    """Custom Data is not a terminal control, it is kept in the block's mod storage.
+    Set twice through the block's property, as the mod API and scripts do."""
+    api = game.api
+    label = f"changed the custom data of {LIGHT_NAME}"
+    assert custom_data(game) == ""
+    last = last_id(game)
+
+    api.set_custom_data(game.station, LIGHT, "first\nline two")
+    recorded(game, last, label)
+    time.sleep(PAUSE)
+    api.set_custom_data(game.station, LIGHT, "second")
+    recorded(game, last + 1, label)
+
+    with terminal(game):
+        assert game.undo() == f"Undo: {label}"
+        assert custom_data(game) == "first\nline two"
+        game.undo()
+        assert custom_data(game) == ""
+        assert game.redo() == f"Redo: {label}"
+        assert custom_data(game) == "first\nline two"
+        game.redo()
+        assert custom_data(game) == "second"
+        game.undo()
+        game.undo()
+    assert custom_data(game) == ""
+
+
+def test_custom_data_typed_into_its_dialog(game):
+    """The Custom Data button of the terminal opens a text dialog; its OK sets the
+    data. Undone in the terminal the block has no custom data again."""
+    api = game.api
+    label = f"changed the custom data of {CONTROLLER_NAME}"
+    cell = rig.TURRET_CONTROLLER
+    last = last_id(game)
+
+    with terminal(game) as screen:
+        api.control_click(name="CustomData", screen=screen)
+        dialog = wait_until(
+            lambda: next(
+                (
+                    i
+                    for i, s in enumerate(api.list_screens())
+                    if i > screen and s.get("hasFocus")
+                ),
+                None,
+            ),
+            "the custom data dialog",
+        )
+        time.sleep(1)  # the opening transition takes no input
+        # The dialog opens with its OK button focused; Tab goes to the text
+
+        def in_the_text() -> bool:
+            if (
+                api.get_focus()["control"]["type"]
+                != "MyGuiControlMultilineEditableText"
+            ):
+                api.key("Tab")
+                time.sleep(0.4)
+                return False
+            return True
+
+        wait_until(in_the_text, "the cursor in the text", interval=0.1)
+        api.type_text("typed by hand")
+        time.sleep(0.5)
+        api.control_click(text="OK", screen=dialog)
+        recorded(game, last, label)
+        assert custom_data(game, cell) == "typed by hand"
+
+        wait_until(lambda: game.terminal_index() is not None, "the terminal again")
+        time.sleep(1)
+        assert game.undo() == f"Undo: {label}"
+        assert custom_data(game, cell) == ""
+        assert game.redo() == f"Redo: {label}"
+        assert custom_data(game, cell) == "typed by hand"
+        game.undo()
