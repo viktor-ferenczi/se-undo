@@ -190,7 +190,12 @@ public static class Recorder
             },
             new List<Op>
             {
-                new RazeBlocksOp { Grid = handle, Positions = built.Select(b => b.Min).ToList() },
+                new RazeBlocksOp
+                {
+                    Grid = handle,
+                    Positions = built.Select(b => b.Min).ToList(),
+                    WithTopParts = true,
+                },
             }
         );
     }

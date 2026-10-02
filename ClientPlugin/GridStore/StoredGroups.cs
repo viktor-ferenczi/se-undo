@@ -16,6 +16,7 @@ using Sandbox.Game.SessionComponents.Clipboard;
 using Sandbox.Game.World;
 using Sandbox.Graphics.GUI;
 using VRage.Game;
+using VRage.Game.ModAPI;
 using VRage.ObjectBuilders;
 using VRage.ObjectBuilders.Private;
 
@@ -58,7 +59,10 @@ public static class StoredGroups
         return chars.Length == 0 ? "_" : new string(chars);
     }
 
-    // The grids the group snapshot of a client replay takes along with this one
+    // The grids the group snapshot of a client replay takes along with this one, and
+    // the backup taken before a removal that takes a mechanical connection apart.
+    // Logical by default: what rotors, hinges, pistons and connectors hold together,
+    // so a docked ship is put back with its carrier instead of being dropped.
     public static List<MyCubeGrid> GroupOf(MyCubeGrid grid) =>
         MyCubeGridGroups
             .Static.GetGroups(Config.Current.GroupLinkTypeForSnapshots)

@@ -77,7 +77,10 @@ public class Config : INotifyPropertyChanged
     public readonly string Title = "Undo";
 
     [Separator("Key bindings")]
-    [Keybind(description: "Reverts the last operation in the current context")]
+    [Keybind(
+        description: "Reverts the last operation in the current context. In gameplay with "
+            + "nothing to undo the key does what it does in the vanilla game."
+    )]
     public Binding UndoBinding
     {
         get => undoBinding;
@@ -92,7 +95,7 @@ public class Config : INotifyPropertyChanged
     }
 
     [Note(
-        "Vanilla binds Ctrl-Z to relative dampeners. While undo holds that key, this one does it."
+        "Vanilla binds Ctrl-Z to relative dampeners. This key does it while there is something to undo."
     )]
     [Keybind(
         description: "Replacement for the vanilla relative dampeners key. "

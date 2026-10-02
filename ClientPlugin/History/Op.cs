@@ -15,9 +15,22 @@ public abstract class Op
     // that turns true once the asynchronous rest (a grid split, a server broadcast) is done.
     public abstract Func<bool> Apply(GridRegistry grids);
 
+    // Called on every op of a step before any of them is applied, with the ops of
+    // the other direction. An op that removes something saves here what the other
+    // direction needs to bring it back complete.
+    public virtual void Prepare(GridRegistry grids, List<Op> opposite) { }
+
     // Existing grids the op changes, for the group snapshot taken before a client replay
     public virtual IEnumerable<int> GridHandles() => Enumerable.Empty<int>();
 
     // Grid store entries the op reads
     public virtual IEnumerable<string> StoreRefs() => Enumerable.Empty<string>();
+}
+
+// Thrown by Apply when the game would not take the change and nothing was changed
+// yet. The step is refused with the reason, like a failed Validate.
+public class OpRefusedException : Exception
+{
+    public OpRefusedException(string reason)
+        : base(reason) { }
 }

@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using ClientPlugin.Apply;
 using ClientPlugin.History;
+using ClientPlugin.Record;
+using Sandbox.Definitions;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Multiplayer;
 using VRage;
@@ -25,9 +27,14 @@ public class RestoreBlocksOp : Op
 
     public List<BlockLinks> Links = new List<BlockLinks>();
 
+    // Entity ids of what the removed blocks' inventories dropped into the world
+    // (SpillWatch). The restored blocks have their items again, so these go first;
+    // they would also be in the way of the blocks.
+    public List<long> Spilled = new List<long>();
+
     public override IEnumerable<int> GridHandles() => new[] { Grid };
 
-    private static bool FullState =>
+    public static bool FullState =>
         Config.Current.RestoreRemovedBlocksWithFullState && Permissions.Creative;
 
     public override string Validate(GridRegistry grids)
@@ -58,8 +65,16 @@ public class RestoreBlocksOp : Op
         {
             if (Sync.IsServer)
             {
-                RestoreOnServer(grid, saved.CubeBlocks);
+                SpillWatch.Remove(Spilled);
+                // The build request returns without a word when something is in
+                // the way; found out here, before anything is changed
+                if (saved.CubeBlocks.Any(b => Blocked(grid, b)))
+                    throw new OpRefusedException(Permissions.InTheWay);
+
+                var missing = RestoreOnServer(grid, saved.CubeBlocks);
                 BlockLinks.Reapply(grid, Links);
+                if (missing != 0)
+                    Executor.Remark($"{Recorder.Plural(missing, "block")} could not be placed");
                 return null;
             }
 
@@ -89,7 +104,19 @@ public class RestoreBlocksOp : Op
 
     // Blocks that connect only through other removed blocks fail until those are
     // back, so this retries until no more progress is made
-    private static void RestoreOnServer(MyCubeGrid grid, List<MyObjectBuilder_CubeBlock> blocks)
+    private static bool Blocked(MyCubeGrid grid, MyObjectBuilder_CubeBlock builder)
+    {
+        var location = Placement(builder).ToLocation(builder.Owner);
+        MyDefinitionManager.Static.TryGetCubeBlockDefinition(
+            location.BlockDefinition,
+            out var definition
+        );
+        return definition == null
+            || !grid.CanPlaceBlock(location.Min, location.Max, location.Orientation, definition);
+    }
+
+    // Returns how many blocks the game did not place
+    private static int RestoreOnServer(MyCubeGrid grid, List<MyObjectBuilder_CubeBlock> blocks)
     {
         var pending = blocks.ToList();
         var progress = true;
@@ -120,10 +147,10 @@ public class RestoreBlocksOp : Op
                 pending.Remove(builder);
                 progress = true;
 
-                // The build request always shares with the faction
+                // The build request always shares with the faction, also a block
+                // nobody owns
                 if (
-                    block.FatBlock != null
-                    && builder.Owner != 0
+                    block.FatBlock?.IDModule != null
                     && builder.ShareMode != MyOwnershipShareModeEnum.Faction
                 )
                     grid.ChangeOwnerRequest(grid, block.FatBlock, builder.Owner, builder.ShareMode);
@@ -132,6 +159,7 @@ public class RestoreBlocksOp : Op
 
         if (pending.Count != 0)
             Log.Warning($"{pending.Count} removed blocks could not be restored");
+        return pending.Count;
     }
 
     private static BlockPlacement Placement(MyObjectBuilder_CubeBlock builder) =>

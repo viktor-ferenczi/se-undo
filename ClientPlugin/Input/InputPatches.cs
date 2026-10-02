@@ -24,13 +24,22 @@ public static class InputPatches
     private static MyKeys consumedKey = MyKeys.None;
     private static MyStringId? replacedControl;
 
-    // Returns the key of the binding it acted on, or None
-    private static MyKeys HandleUndoRedo(UndoHistory history, GridRegistry grids)
+    // Returns the key of the binding it acted on, or None.
+    // In gameplay the undo key is left to the game while there is nothing to undo:
+    // a player who is flying and not editing gets the vanilla action of the key,
+    // relative dampeners on Ctrl-Z.
+    private static MyKeys HandleUndoRedo(
+        UndoHistory history,
+        GridRegistry grids,
+        bool leaveIdleUndoToTheGame = false
+    )
     {
         var input = MyInput.Static;
         var config = Config.Current;
         if (config.UndoBinding.HasPressed(input))
         {
+            if (leaveIdleUndoToTheGame && Executor.NothingToUndo(history))
+                return MyKeys.None;
             Executor.Undo(history, grids);
             return config.UndoBinding.Key;
         }
@@ -56,7 +65,7 @@ public static class InputPatches
             )
                 return;
 
-            consumedKey = HandleUndoRedo(document.Build, document.Grids);
+            consumedKey = HandleUndoRedo(document.Build, document.Grids, true);
             if (consumedKey != MyKeys.None)
                 return;
 
