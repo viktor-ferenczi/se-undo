@@ -11,9 +11,7 @@ tests that change something from outside open it for the undo.
 
 from __future__ import annotations
 
-import math
 import time
-from contextlib import contextmanager
 
 import pytest
 
@@ -33,80 +31,19 @@ AIM = (BLOCK[0], BLOCK[1] + 0.3, BLOCK[2])
 
 @pytest.fixture(scope="module", autouse=True)
 def at_the_turret_controller(game):
-    api = game.api
-    rig.focus_gameplay(api)
-    if api.get_character()["state"] == "sitting":
-        api.key("F")
-        wait_until(
-            lambda: api.get_character()["state"] != "sitting", "leaving the seat"
-        )
-    target = rig.station_point(STAND)
-    api.character_teleport(*target)
-    wait_until(
-        lambda: math.dist(api.get_character()["position"], target) < 1.5,
-        "the teleport in front of the turret controller",
-    )
+    game.stand_at(STAND)
 
 
-def terminal_index(api) -> int | None:
-    return next(
-        (
-            i
-            for i, s in enumerate(api.list_screens())
-            if s.get("type") == "MyGuiScreenTerminal" and s.get("hasFocus")
-        ),
-        None,
-    )
+def terminal(game, leave_search_box: bool = True):
+    return game.open_terminal(AIM, leave_search_box)
+
+
+def control(game, screen: int, name: str | None = None, ident: str | None = None):
+    return game.control(screen, name, ident)
 
 
 def focus_is_text(api) -> bool:
     return api.get_focus()["control"]["type"] == "MyGuiControlTextbox"
-
-
-@contextmanager
-def terminal(game, leave_search_box: bool = True):
-    """The block's terminal, opened with F and closed again afterwards.
-
-    It opens with the cursor in the block search box, where Ctrl-Z and Ctrl-Y belong
-    to that box. Tab moves the focus on to the block list, so the keys reach the
-    terminal history."""
-    api = game.api
-    api.character_look_at(*rig.station_point(AIM))
-
-    def opened():
-        if terminal_index(api) is None:
-            api.key("F")
-            time.sleep(0.5)
-        return terminal_index(api) is not None
-
-    wait_until(opened, "the terminal", interval=0.5)
-    # Screens take no input while their opening transition runs
-    time.sleep(1)
-    try:
-        assert focus_is_text(api)
-        if leave_search_box:
-            api.key("Tab")
-            wait_until(lambda: not focus_is_text(api), "the focus to leave the box")
-        yield terminal_index(api)
-    finally:
-        rig.focus_gameplay(api)
-
-
-def control(game, screen: int, name: str | None = None, ident: str | None = None):
-    """A control of the screen by name, or by its Remote id where names repeat"""
-    found = []
-
-    def walk(node):
-        if node.get("id") == ident if ident else node.get("name") == name:
-            found.append(node)
-        for child in node.get("controls") or node.get("children") or []:
-            walk(child)
-
-    tree = game.api.get_controls(screen, depth=12)
-    for node in tree if isinstance(tree, list) else tree.get("controls", []):
-        walk(node)
-    assert found, f"no control {name or ident}"
-    return found[0]
 
 
 def prop(game, name: str):
@@ -318,8 +255,66 @@ def test_a_block_type_new_to_the_world_has_its_controls(game):
         wait_until(lambda: not game.exists(cell), "the warhead to go")
 
 
-@pytest.mark.skip(
-    reason="The Remote API has no endpoint to read or write a PB program (SE1-0060)"
-)
-def test_pb_program():
-    """Save a program in the editor, Ctrl-Z in the terminal, the old program is back"""
+def editor(api) -> int | None:
+    return next(
+        (
+            i
+            for i, s in enumerate(api.list_screens())
+            if s.get("type") == "MyGuiScreenEditor"
+        ),
+        None,
+    )
+
+
+def saved_program(game) -> str:
+    station = game.saved_station()
+    block = next(
+        b
+        for b in station.iter("MyObjectBuilder_CubeBlock")
+        if b.findtext("EntityId") == str(rig.IDS[rig.PROGRAMMABLE])
+    )
+    return block.findtext("Program") or ""
+
+
+def test_pb_program_saved_from_the_editor(game):
+    """Two programs saved with the editor's OK button, each a node. Inside the
+    editor Ctrl-Z is the editor's own; back in the terminal it takes the saves
+    back one by one, down to a block without a program."""
+    api = game.api
+    label = "changed the program of Undo Programmable Block"
+    game.stand_at((rig.PROGRAMMABLE[0], 1.0, rig.PROGRAMMABLE[2] - 1.0))
+    aim = (rig.PROGRAMMABLE[0], rig.PROGRAMMABLE[1], rig.PROGRAMMABLE[2])
+    assert saved_program(game) == ""
+    last = game.last_node_id("terminal")
+
+    with game.open_terminal(aim) as screen:
+        for word in ("// first ", "// second "):
+            api.control_click(text="Edit", screen=screen)
+            wait_until(lambda: editor(api) is not None, "the editor")
+            time.sleep(1)  # the opening transition takes no input
+            api.type_text(word)
+            time.sleep(0.5)
+            # The multi line editor keeps its vanilla undo; the plugin stays out
+            game.quiet(lambda: api.key(*game.undo_key))
+            api.control_click(text="OK", screen=editor(api))
+            wait_until(lambda: editor(api) is None, "the editor to close")
+            recorded(game, last, label)
+            last += 1
+            time.sleep(1)
+
+    second = saved_program(game)
+    assert second.startswith("// second ") and "// first " in second
+
+    with game.open_terminal(aim):
+        assert game.undo() == f"Undo: {label}"
+    first = saved_program(game)
+    assert first.startswith("// first ") and "// second " not in first
+
+    with game.open_terminal(aim):
+        game.undo()
+    assert saved_program(game) == ""
+
+    with game.open_terminal(aim):
+        assert game.redo() == f"Redo: {label}"
+        game.redo()
+    assert saved_program(game) == second
