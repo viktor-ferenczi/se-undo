@@ -6,14 +6,20 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading;
+using ClientPlugin.History;
 using ClientPlugin.Ops;
+using ClientPlugin.Session;
 using HarmonyLib;
+using Sandbox;
 using Sandbox.Definitions;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Blocks;
 using Sandbox.Game.Entities.Cube;
 using Sandbox.Game.Gui;
+using Sandbox.Game.Screens.Helpers;
 using Sandbox.Game.Screens.Terminal.Controls;
+using Sandbox.Game.World;
 
 namespace ClientPlugin.Record;
 
@@ -223,6 +229,62 @@ public static class TerminalContextPatches
         {
             if (Recorder.CanRecordTerminal)
                 Recorder.RecordCustomData(__instance, __instance.CustomData, value);
+        }
+    }
+
+    // A slot of a block's toolbar set or cleared: the toolbar screen's drag and drop
+    // and its right click end here. The character's own toolbar has no block as
+    // its owner and is left alone.
+    [HarmonyPatch(
+        typeof(MyToolbar),
+        nameof(MyToolbar.SetItemAtIndex),
+        typeof(int),
+        typeof(MyToolbarItem),
+        typeof(bool)
+    )]
+    private static class ToolbarSlotPatch
+    {
+        private static void Prefix(MyToolbar __instance, int i, bool gamepad, out string __state)
+        {
+            __state = CanRecordToolbar(__instance) ? Slot(__instance, i, gamepad) : null;
+        }
+
+        private static void Postfix(MyToolbar __instance, int i, bool gamepad, string __state)
+        {
+            if (__state == null)
+                return;
+
+            var block = (MyTerminalBlock)__instance.Owner;
+            var toolbar = BlockToolbars.NameOf(block, __instance);
+            var item = Slot(__instance, i, gamepad);
+            if (toolbar != null && item != null && item != __state)
+                Recorder.RecordToolbar(block, toolbar, i, gamepad, __state, item);
+        }
+
+        // Only while the toolbar screen is open, which is where a player changes a
+        // block's toolbar. The game sets slots by itself too: it fills a cockpit's
+        // toolbar when someone sits down.
+        private static bool CanRecordToolbar(MyToolbar toolbar) =>
+            toolbar.Owner is MyTerminalBlock
+            && UndoSession.Document != null
+            && !Replay.Active
+            && Config.Current.EnableTerminalContext
+            && MyGuiScreenToolbarConfigBase.Static != null
+            && Thread.CurrentThread == MySandboxGame.Static.UpdateThread;
+
+        private static string Slot(MyToolbar toolbar, int index, bool gamepad)
+        {
+            try
+            {
+                return BlockToolbars.Write(
+                    gamepad ? toolbar.GetItemAtIndexGamepad(index) : toolbar.GetItemAtIndex(index)
+                );
+            }
+            catch (Exception e)
+            {
+                Log.Debug($"Reading a toolbar slot failed: {e.Message}");
+                return null;
+            }
         }
     }
 

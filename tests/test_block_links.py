@@ -54,9 +54,9 @@ def picture(game, grid: int = GRID) -> dict[str, str]:
     return parts
 
 
-# What changes in a block by itself: frame counters of the LCD surfaces, and the
-# charge of the battery that feeds the rig
-VOLATILE = ("UpdateStartOfFirstTexture", "CurrentStoredPower")
+# What changes in a block by itself: frame counters of the LCD surfaces and of the
+# offensive combat block, and the charge of the battery that feeds the rig
+VOLATILE = ("UpdateStartOfFirstTexture", "CurrentStoredPower", "RunAwayStartedFrame")
 
 
 def normalized(block: ET.Element) -> ET.Element:
@@ -113,6 +113,7 @@ def test_the_rig_loaded_as_written(game):
     assert f"<BindedCamera>{ids['camera']}</BindedCamera>" in saved
     assert f"<CameraId>{ids['camera']}</CameraId>" in saved
     assert "<Value>Lamp</Value>" in saved
+    assert rig.LINKS_LCD_TEXT in saved and "<FontSize>2.5</FontSize>" in saved
     assert "some custom data" in saved and "Echo(Storage)" in saved
     assert len(game.cubes(GRID)) == len(rig.LINKS_FLOOR) + len(rig.LINKS)
     cargo = game.api.get_inventory(GRID, rig.LINKS["cargo"])["items"]

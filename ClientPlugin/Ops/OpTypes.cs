@@ -19,5 +19,6 @@ public static class OpTypes
         typeof(SetGridNameOp),
         typeof(SetProgramOp),
         typeof(SetCustomDataOp),
+        typeof(SetToolbarSlotOp),
     };
 }

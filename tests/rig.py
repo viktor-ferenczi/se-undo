@@ -349,7 +349,13 @@ LINKS = {
     "program": (2, 1, 2),
     "cockpit": (4, 1, 2),
     "battery": (6, 1, 2),
+    "lcd": (3, 1, 2),
+    "offensive": (7, 1, 2),
+    "defensive": (5, 1, 2),
+    "flight": (0, 1, 1),
+    "recorder": (7, 1, 1),
 }
+LINKS_LCD_TEXT = "Hello from the LCD"
 LINKS_IDS = {name: 777000556000011 + i for i, name in enumerate(LINKS)}
 LINKS_GROUP = "Links Group"
 LINKS_ITEMS = {"SteelPlate": 7, "Motor": 3}
@@ -461,6 +467,33 @@ def links_xml(position, forward, up) -> str:
                 + _slot(4, "timer", "TriggerNow"),
             ),
         ),
+        block(
+            "lcd",
+            "TextPanel",
+            "LargeLCDPanel",
+            f"<PublicDescription>{LINKS_LCD_TEXT}</PublicDescription>"
+            "<FontSize>2.5</FontSize><ContentType>TEXT_AND_IMAGE</ContentType>"
+            "<Alignment>Align_Center</Alignment><TextPadding>7</TextPadding>"
+            "<FontColor><PackedValue>4278255615</PackedValue></FontColor>",
+            # The panel mounts with its front side
+            forward="Down",
+            up="Forward",
+        ),
+        # The AI blocks, each with a toolbar of its own
+        block(
+            "offensive",
+            "OffensiveCombatBlock",
+            "LargeOffensiveCombat",
+            _toolbar("Character", _slot(0, "light") + _slot(1, "timer", "TriggerNow")),
+        ),
+        block("defensive", "DefensiveCombatBlock", "LargeDefensiveCombat"),
+        block(
+            "flight",
+            "FlightMovementBlock",
+            "LargeFlightMovement",
+            _toolbar("Character", _slot(0, "light2")),
+        ),
+        block("recorder", "PathRecorderBlock", "LargePathRecorderBlock"),
         # Power for the timer, whose toolbar a test triggers
         block(
             "battery",

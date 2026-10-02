@@ -365,6 +365,36 @@ public static class Recorder
         );
     }
 
+    // One slot of a block's toolbar. Moving an item is two slot changes, which land
+    // in one node: the kind is the toolbar, the slots are its targets.
+    public static void RecordToolbar(
+        MyTerminalBlock block,
+        string toolbar,
+        int index,
+        bool gamepad,
+        string oldItem,
+        string newItem
+    )
+    {
+        var blockRef = BlockRef.From(block, UndoSession.Document.Grids);
+        var name = block.DisplayNameText;
+        RecordTerminal(
+            $"toolbar {blockRef.Key} {toolbar}",
+            $"{index} {gamepad}",
+            oldItem,
+            newItem,
+            value => new SetToolbarSlotOp
+            {
+                Block = blockRef,
+                Toolbar = toolbar,
+                Index = index,
+                Gamepad = gamepad,
+                Item = value,
+            },
+            (_, _, _) => $"changed the toolbar of {name}"
+        );
+    }
+
     public static void OpenStroke(MyCubeGrid grid)
     {
         if (stroke != null && stroke.Grid != grid)

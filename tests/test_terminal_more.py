@@ -382,3 +382,61 @@ def test_custom_data_typed_into_its_dialog(game):
         assert game.redo() == f"Redo: {label}"
         assert custom_data(game, cell) == "typed by hand"
         game.undo()
+
+
+def toolbar_names(game) -> dict[int, str]:
+    return {item["slot"]: item["name"] for item in game.api.get_toolbar()["items"]}
+
+
+def test_toolbar_of_a_block(game):
+    """The character sits in the station's cockpit, whose toolbar is then the one
+    on screen, and clears two of its slots in the toolbar screen. That is one step
+    of the terminal history; undo puts both slots back, with the blocks and actions
+    they pointed at."""
+    from se_autopilot import enter_cockpit
+
+    api = game.api
+    label = "changed the toolbar of Undo Cockpit"
+    assert enter_cockpit(api, game.station, timeout=60)["state"] == "sitting"
+    try:
+        time.sleep(1)
+        before = toolbar_names(game)
+        assert before == {
+            0: f"{LIGHT_NAME} - Toggle block On/Off",
+            1: "Part B Light - Toggle block On/Off",
+        }
+        last = last_id(game)
+
+        # Sitting down filled the toolbar, which is no step of the player's
+        assert game.labels(0, "terminal").count(label) == 0
+
+        api.key("G")
+        wait_until(lambda: game.screen("MyGuiScreenCubeBuilder"), "the toolbar screen")
+        time.sleep(1)
+        api.set_toolbar_slot(0, None)
+        api.set_toolbar_slot(1, None)
+        recorded(game, last, label)
+        assert toolbar_names(game) == {}
+        assert last_id(game) == last + 1
+        rig.focus_gameplay(api)
+
+        api.key("K")
+        wait_until(lambda: game.terminal_index() is not None, "the terminal")
+        time.sleep(1)
+        api.key("Tab")
+        wait_until(lambda: not game.focus_is_text(), "the focus to leave the box")
+        assert game.undo() == f"Undo: {label}"
+        assert toolbar_names(game) == before
+        assert game.redo() == f"Redo: {label}"
+        assert toolbar_names(game) == {}
+        game.undo()
+        assert toolbar_names(game) == before
+        rig.focus_gameplay(api)
+    finally:
+        rig.focus_gameplay(api)
+        game.leave_seat()
+
+    # Saved without the pilot in the seat, whose entity the sector file nests
+    # into the cockpit
+    slots = [e.text for e in game.saved_station().iter("BlockEntityId")]
+    assert str(rig.IDS[rig.TARGET]) in slots and str(rig.IDS[rig.PART_B_LIGHT]) in slots

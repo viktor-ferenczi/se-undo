@@ -399,6 +399,28 @@ terminal changes: with the terminal open, or always with the "record outside the
 terminal" option. What arrives from the server goes past the setter and is not
 recorded.
 
+### Block toolbars
+
+Added on 2026-10-02. A slot of a block's toolbar (cockpit, timer, button panel,
+sensor, event controller, AI blocks and the rest) set or cleared in the toolbar
+screen is a step of the terminal history: "changed the toolbar of X". The hook is a
+prefix and postfix on `MyToolbar.SetItemAtIndex(int, MyToolbarItem, bool)`, where the
+screen's drag and drop and right click end. It records only while the toolbar screen
+is open (`MyGuiScreenToolbarConfigBase.Static`), because the game calls the same
+method by itself, for one when it fills a cockpit's toolbar as someone sits down. The
+character's own toolbar has no block as its owner and is not recorded.
+
+`SetToolbarSlotOp` keeps the item as a toolbar builder with that one slot, the way a
+save has it, and names the toolbar by the block's field that holds it
+(`BlockToolbars`), since a block can have more than one. Slots changed within the
+coalescing window are one node, so moving an item from one slot to another is one
+step. Toolbars a component holds instead of the block (AI recorder waypoints, the
+basic mission block) are not recorded.
+
+The step is undone where the terminal history has the keys, in the terminal. The
+toolbar screen itself opens with the cursor in its search box, where the keys belong
+to the box.
+
 ### What a restored block keeps, and what is restored as a whole group
 
 Reworked on 2026-10-02 (SE1-0078). The test for all of it is the saved world: a grid
@@ -940,10 +962,11 @@ Rows added then, one test each unless noted:
 | Dialog buttons | the dialog in a world with no backups; Paste, Delete answered with No, Close, Escape, the key pressed twice | no rows; the backup stays; one dialog; the Paste button puts the backup on the clipboard and a click places it |
 | Budget question closed | Escape on the question | a barrier node like on No |
 | Mechanical connections | a rotor, a hinge (placed with the cube builder, the build request cannot turn it) and a piston base built on the station, one armor block on the top part; the base removed, undo, redo, undo; the rotor head removed instead; older steps undone after the restore; a rotor on the drift ship, removed while the ship coasts | base and top part back under their ids, the top grid at its old distance and still there three seconds later, `TopBlockId` of the base in the saved sector; the station and its other blocks keep their ids; the ship is restored where it is now, with its speed; undoing the placement of a rotor leaves no top part behind |
-| A restored block is the block it was | the links rig: lights, a camera, a timer, a button panel, a sensor, an event controller, a remote control, a turret controller, a cargo container with items, a programmable block, a cockpit and a battery, with toolbar slots, a bound camera, tool and block lists, button names and two block groups between them; each of the 13 blocks removed and restored; the light removed, undone, redone, undone; the timer triggered before and after the light and the timer were restored; the whole grid deleted and restored; the character standing in a removed block's cell | the rig's part of the saved sector is the same as before, block by block and group by group; the trigger switches the light; "something is in the way" and the step stays, then works |
+| A restored block is the block it was | the links rig: lights, a camera, a timer, a button panel, a sensor, an event controller, a remote control, a turret controller, a cargo container with items, a programmable block with a program and Custom Data, a cockpit, a battery, an LCD panel with text, font size, alignment and color, and the offensive, defensive, flight and recorder AI blocks, with toolbar slots, a bound camera, tool and block lists, button names and two block groups between them; each of the 18 blocks removed and restored; the light removed, undone, redone, undone; the timer triggered before and after the light and the timer were restored; the whole grid deleted and restored; the character standing in a removed block's cell | the rig's part of the saved sector is the same as before, block by block and group by group; the trigger switches the light; "something is in the way" and the step stays, then works |
 | Inventory | the container removed and restored twice over undo and redo; a container placed, filled from another one through `inventory_transfer`, the placement undone and redone; the same removal in a world with `TemporaryContainers` off | the items are in the container, the cell is free after a replayed removal, nothing is left lying in it |
 | Redo of a placement | a timer placed, renamed, its delay changed; undo, redo | the same entity id and name, the saved sector as before the undo |
 | Ctrl-Z with nothing to undo | empty build history, dampeners off, Ctrl-Z; then a step to undo, Ctrl-Z | the dampeners come on and the plugin says nothing; with a step the key undoes it and the dampeners stay off |
+| Block toolbar | seated in the station's cockpit, the toolbar screen opened with G, two slots cleared through `character/toolbar/slot` | sitting down records nothing; one node for both slots; undo in the terminal brings both back with their block and action, redo clears them; the saved cockpit has the slots |
 | Custom Data | set twice through the block's property (`custom_data` set op); typed into the Custom Data dialog of the terminal and confirmed with OK | "changed the custom data of X", a node each; undo back to no custom data, redo |
 | Load edge cases | terminal change and a removed block saved and loaded; a paste undone, saved, loaded, redone; garbage in `Undo.xml.gz`; `<Version>` 999 in it; another world loaded in between; the pasted grid cut out of the sector file | both histories back, the block restored under its id; the grid from the store; an empty history and the log line for each broken file, then a good file from the next save; the other world starts empty and the first has its saved history again; the steps of the missing grid are refused and stay |
 
