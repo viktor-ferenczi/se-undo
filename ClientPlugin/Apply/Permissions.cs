@@ -41,6 +41,7 @@ public static class Permissions
     public const string ConstructionSites = "restored as construction sites";
     public const string LinksLost = "restored, some block links lost";
     public const string WithChanges = "restored with changes";
+    public const string InTheWay = "something is in the way";
     public const string NeedsCreativeTools = "needs creative tools";
     public const string NotYourGrid = "the grid belongs to someone else";
     public const string NoCopyPaste = "copy and paste is disabled";

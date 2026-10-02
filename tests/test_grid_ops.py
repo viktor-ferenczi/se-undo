@@ -16,7 +16,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 import rig
-from harness import wait_until
+from harness import AIM_TOLERANCE, wait_until
 from se_remote import CallOp
 
 PASTE_NAME = "Undo Paste Test"
@@ -155,17 +155,65 @@ def test_clipboard_delete_is_one_node(game):
     wait_until(lambda: not pasted_grids(game), "the pasted grid to go")
 
 
+def test_cut_then_undo_and_paste_elsewhere(game):
+    """Ctrl-X copies the grid and deletes it, one node. Undo brings it back, and
+    the clipboard still holds the copy for a paste of its own."""
+    api = game.api
+    pasted = paste_test_grid(game)
+    last = game.last_node_id()
+
+    aim_at(api, pasted)
+    api.key("X", ["LeftControl"])
+    box = wait_until(
+        lambda: next(
+            (s for s in api.list_screens() if s.get("type") == "MyGuiScreenMessageBox"),
+            None,
+        ),
+        "the cut confirmation",
+    )
+    api.control_click(text="Yes", screen=box["index"])
+    wait_until(lambda: not pasted_grids(game), "the cut grid to go")
+    game.wait_recorded(last, f"deleted {PASTE_NAME}")
+    assert game.last_node_id() == last + 1
+
+    assert game.undo() == f"Undo: deleted {PASTE_NAME}"
+    (grid,) = wait_until(lambda: pasted_grids(game), "the grid to come back")
+    assert grid["entityId"] == pasted["entityId"]
+    assert has_all_cells(game, grid["entityId"])
+
+    # The copy goes into the open air on the other side
+    api.character_look_at(*rig.station_point((24, 1, -6)))
+    assert not api.get_character_target(max_distance=200)["hit"]
+    api.key("V", ["LeftControl"])
+    time.sleep(1)  # the preview follows the camera from the next frames
+    click(api)
+    wait_until(lambda: len(pasted_grids(game)) == 2, "the pasted copy")
+    game.wait_recorded(last + 1, f"pasted {PASTE_NAME}")
+
+    assert game.undo() == f"Undo: pasted {PASTE_NAME}"
+    wait_until(lambda: len(pasted_grids(game)) == 1, "the copy to go")
+    assert pasted_grids(game)[0]["entityId"] == pasted["entityId"]
+    game.redo()
+    game.undo()
+    wait_until(lambda: len(pasted_grids(game)) == 1, "the copy to go again")
+    # Back over the cut and the first paste: the world is left without the grid
+    assert game.build()["current"] == last
+    game.undo(expect=f"Undo: pasted {PASTE_NAME}")
+    wait_until(lambda: not pasted_grids(game), "the wall to go")
+
+
 def click(api) -> None:
     """A left click as gameplay input; the GUI click endpoint does not reach the
     clipboard or the cube builder"""
     api.set_input_state(mouse_left=True, mode="override")
-    time.sleep(0.2)
+    # Several frames; a press shorter than a frame is lost on a busy machine
+    time.sleep(0.5)
     api.clear_input_state()
 
 
 def aim_at(api, grid: dict) -> None:
     def aimed():
-        api.character_look_at(*grid["position"])
+        api.character_look_at(*grid["position"], tolerance=AIM_TOLERANCE)
         target = api.get_character_target(max_distance=200).get("block") or {}
         return target.get("gridId") == grid["entityId"]
 

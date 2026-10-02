@@ -38,7 +38,9 @@ public static class TerminalValues
         }
     }
 
-    private static Accessor Create(Type controlType)
+    // TBlock and TValue of the MyTerminalValueControl a control class derives from,
+    // null for a control that holds no value
+    public static Type[] ValueControlArguments(Type controlType)
     {
         var valueControl = controlType;
         while (
@@ -49,10 +51,15 @@ public static class TerminalValues
             )
         )
             valueControl = valueControl.BaseType;
-        if (valueControl == null)
+        return valueControl?.GetGenericArguments();
+    }
+
+    private static Accessor Create(Type controlType)
+    {
+        var arguments = ValueControlArguments(controlType);
+        if (arguments == null)
             return null;
 
-        var arguments = valueControl.GetGenericArguments();
         var valueType = arguments[1];
         if (!IsSupported(valueType))
         {

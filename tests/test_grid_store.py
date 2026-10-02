@@ -27,6 +27,7 @@ SPOTS = {
     "C": (24, 1, 4),
     "D": (24, 1, 0),
     "Big": (24, 1, -4),
+    "Esc": (24, 6, 12),
 }
 SWITCH = (1, 1, 0)
 
@@ -128,6 +129,31 @@ def answer(game, text: str) -> None:
     # No undo or redo while the question is open, the box has the input anyway
     api.control_click(text=text, screen=box["index"])
     wait_until(lambda: not message_box(api), "the question to close")
+
+
+def test_closing_the_budget_question_counts_as_no(game):
+    """Escape instead of a button: the backup is dropped like on No"""
+    if rig.undo_config("GridStoreBudgetPerWorldMb") != "1":
+        pytest.skip("an earlier run on this client raised the budget")
+    api = game.api
+    last = game.last_node_id()
+    paste(game, "Esc", 1_200_000, expect_node=False)
+    wait_until(lambda: message_box(api), "the budget question")
+
+    # Undo and redo wait for the answer
+    time.sleep(1)
+    assert game.last_node_id() == last
+
+    api.key("Escape")
+    wait_until(lambda: not message_box(api), "the question to close")
+    node = game.wait_recorded(last, f"pasted {name_of('Esc')}")
+    assert node["barrier"] and not node["storeRefs"]
+    assert not rows("Esc")
+    assert not list(store_folder().glob("*.tmp"))
+    assert rig.undo_config("GridStoreBudgetPerWorldMb") == "1"
+    assert game.undo(expect=None) == (
+        "Undo not available: backup was too large for the budget"
+    )
 
 
 def test_oversized_backup_asks_once_per_backup(game):

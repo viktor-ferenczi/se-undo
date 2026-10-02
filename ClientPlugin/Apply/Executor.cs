@@ -16,6 +16,14 @@ public static class Executor
 
     public static void Redo(UndoHistory history, GridRegistry grids) => Step(history, grids, false);
 
+    // No step to take back and none on its way: a stroke still being coalesced is
+    // committed first, and a recording or replay in progress counts as something
+    public static bool NothingToUndo(UndoHistory history)
+    {
+        Recorder.Flush();
+        return !history.IsLocked && !Recorder.IsBusy && history.UndoTarget == null;
+    }
+
     // What an op has to say about its result, shown with the step's notification:
     // "restored as construction sites", "restored with changes" and the like
     private static readonly List<string> remarks = new List<string>();
@@ -99,6 +107,13 @@ public static class Executor
             if (!Sync.IsServer && !viaSnapshot)
                 saveSnapshot = GroupSnapshotOp.Prepare(ops, grids);
 
+            if (!viaSnapshot)
+            {
+                var opposite = undo ? node.Forward : node.Reverse;
+                foreach (var op in ops)
+                    op.Prepare(grids, opposite);
+            }
+
             using (Replay.Begin())
             {
                 foreach (var op in ops)
@@ -108,6 +123,12 @@ public static class Executor
                         checks.Add(check);
                 }
             }
+        }
+        catch (OpRefusedException e)
+        {
+            remarks.Clear();
+            Notify.Show($"{verb} not available: {e.Message}");
+            return;
         }
         catch (Exception e)
         {
@@ -123,6 +144,12 @@ public static class Executor
             history.MarkRedone(node);
 
         node.UnknownResult = false;
+        // Prepare may have stored a backup the other direction reads
+        foreach (var id in node.Forward.Concat(node.Reverse).SelectMany(op => op.StoreRefs()))
+        {
+            if (!node.StoreRefs.Contains(id))
+                node.StoreRefs.Add(id);
+        }
         if (checks.Count != 0)
         {
             history.Pending = new PendingOp

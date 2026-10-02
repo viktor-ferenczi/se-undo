@@ -180,6 +180,13 @@ control is simply unreachable through the keyboard while undo holds its key, whi
 dialog says next to the option. The plugin's bindings are only checked when the
 respective context is active, so Ctrl-Shift-Z in a text box still means nothing.
 
+In the build context the undo key is the plugin's only while there is something to
+undo (added on 2026-10-02). With an empty build history and no recording or replay
+in progress the prefix does not take the key, so the game handles it: Ctrl-Z is
+relative dampeners, as in the vanilla game, for a player who is flying and not
+editing. No "Nothing to undo" is shown there. The redo key has no such fallback,
+its vanilla action would switch all reactors. The terminal keeps its "Nothing to undo".
+
 ## 4. History model
 
 ```
@@ -349,6 +356,121 @@ went wrong, and the current node already moved past it, so restoring it is what 
 step in the other direction leads to. Server side ops complete synchronously and
 never take one. An exception while applying ops leaves the current node where it was,
 so no snapshot is attached then; the node is refused as before.
+
+### Removals that take a mechanical connection apart
+
+Added on 2026-10-01 (SE1-0081). Removing the base of a rotor, hinge, piston or wheel
+suspension, or the part on its other end, lets go of whatever it held. That subgrid
+falls, drifts or collides within a second, and a restored base does not take it back:
+it was found lying in the base's cells, which also kept the base from being placed.
+Connecting the two again by hand (moving the subgrid, attaching the top) has too many
+ways to fail, so the plugin does not try.
+
+`RazeCapture` checks the blocks of a removal before the request. If one of them is a
+`MyMechanicalConnectionBlockBase` or a `MyAttachableTopBlockBase`, it captures the
+builders of the grid's whole group first (`StoredGroups.GroupOf`, the link type of
+`GroupLinkTypeForSnapshots`, Logical by default, so ships docked on connectors are in
+it). The node's reverse is then one `GroupSnapshotOp` instead of `RestoreBlocksOp` and
+`MergeBackOp`: it closes the group's current grids and the pieces the removal split
+off, and creates the group again from the backup, on a local server under the old
+ids. The backup goes through the grid store like any other, with reason Snapshot, the
+budget question included. Such a removal is recorded even when it closed its grid.
+
+A ship may have moved between the removal and the undo. The op has the index of the
+grid the removal happened on (`Anchor`) and moves the stored group to where that grid
+is now, with its velocity, before creating it.
+
+The other direction: placing one of these bases makes the game create the top part
+as a grid of its own. The undo of a placement (`RazeBlocksOp.WithTopParts`) closes a
+top grid that still consists of that one block before it removes the base.
+
+Costs: every removal of such a block stores the group, which for a large ship is a
+few hundred KB compressed, and the undo re-creates the whole group. A player seated
+in the group is thrown out of the seat by that, like on the undo of a delete.
+
+### Custom Data
+
+Added on 2026-10-02. Custom Data is no terminal value control: the terminal has a
+button that opens a text dialog, and the text lives in the block's mod storage under
+a fixed id. The dialog, the mod API and scripts all set `MyTerminalBlock.CustomData`,
+so a prefix on that setter records the change into the terminal history
+(`SetCustomDataOp`, the text gzip compressed), under the same rules as the other
+terminal changes: with the terminal open, or always with the "record outside the
+terminal" option. What arrives from the server goes past the setter and is not
+recorded.
+
+### Block toolbars
+
+Added on 2026-10-02. A slot of a block's toolbar (cockpit, timer, button panel,
+sensor, event controller, AI blocks and the rest) set or cleared in the toolbar
+screen is a step of the terminal history: "changed the toolbar of X". The hook is a
+prefix and postfix on `MyToolbar.SetItemAtIndex(int, MyToolbarItem, bool)`, where the
+screen's drag and drop and right click end. It records only while the toolbar screen
+is open (`MyGuiScreenToolbarConfigBase.Static`), because the game calls the same
+method by itself, for one when it fills a cockpit's toolbar as someone sits down. The
+character's own toolbar has no block as its owner and is not recorded.
+
+`SetToolbarSlotOp` keeps the item as a toolbar builder with that one slot, the way a
+save has it, and names the toolbar by the block's field that holds it
+(`BlockToolbars`), since a block can have more than one. Slots changed within the
+coalescing window are one node, so moving an item from one slot to another is one
+step. Toolbars a component holds instead of the block (AI recorder waypoints, the
+basic mission block) are not recorded.
+
+The step is undone where the terminal history has the keys, in the terminal. The
+toolbar screen itself opens with the cursor in its search box, where the keys belong
+to the box.
+
+### What a restored block keeps, and what is restored as a whole group
+
+Reworked on 2026-10-02 (SE1-0078). The test for all of it is the saved world: a grid
+whose blocks point at each other in every way the game has is saved, a block removed,
+the removal undone, the world saved again, and the grid's part of the sector file
+compared (`tests/test_block_links.py`).
+
+A single block is restored on a local server from its own builder under its old
+entity id. That brings back its settings, its toolbar, its lists and its inventory,
+and everything that refers to it by id finds it again: toolbar slots of other blocks
+(checked by triggering a timer), a remote control's bound camera, a turret
+controller's camera. What other blocks drop when it closes is captured and put back
+by `BlockLinks`: block groups, turret controller tools, event controller selections.
+The build request shares every block with the faction; the saved share mode is set
+again afterwards, also on a block nobody owns.
+
+Inventory. The game drops what a removed block holds into the world, as a container
+bag or, in a world without temporary containers, as loose items. They lie where the
+block was and keep the game from placing it again, which is why a container with
+items did not come back. `SpillWatch` collects what appears at the removed blocks
+during the ten frames after the removal; the restore takes those entities out of the
+world first, physics body included, since closing an entity only takes effect at the
+end of the frame. The restored block has the items in its inventory again, so nothing
+is doubled. A replayed removal (redo, or the undo of a placement) empties the
+inventories before it removes the blocks, so it drops nothing.
+
+Refusal instead of a silent miss. The game's build request returns without a word
+when something is in the way. `RestoreBlocksOp` and `BuildBlocksOp` ask
+`MyCubeGrid.CanPlaceBlock` for every block before they change anything and refuse
+the step with "something is in the way" (`OpRefusedException`, handled by the
+executor like a failed validation). Blocks the game still does not place are
+reported with the step: "(1 block could not be placed)".
+
+Redo of a placement. The undo of a placement removes blocks the player may have
+changed since: renamed, configured, filled. Before the step is applied every op gets
+`Prepare` with the ops of the other direction, and `RazeBlocksOp` saves the blocks as
+they are into the placement's `BuildBlocksOp` (`Restore`, or `Snapshot` with the whole
+group for the blocks named below). Redo then puts those blocks back instead of new
+ones from the definition. Without creative rights or with the full state option off
+redo builds from the definition as before.
+
+Blocks that hold another grid are not restored one by one. `RazeCapture.NeedsGroupBackup`
+is true for the base of a rotor, hinge, piston or suspension, the part on its other
+end, and a connector that has a ship on it; their removal goes the group way of the
+previous section.
+
+The Sections plugin keeps the same kinds of references across a cut and paste
+(`se-sections/ClientPlugin/Logic/Reference.cs`). It has to find the blocks again by
+a GUID in the mod storage because a paste gives them new ids; here the ids stay, so
+nothing is stored on the blocks.
 
 ## 8. Persistence
 
@@ -800,6 +922,66 @@ the event controller part of the link loss is not checked; Remote's target endpo
 names no grid on a client and its Info page crashes there (SE1-0075), so the aim is
 checked by distance and the grid name is not renamed.
 
+The suite was split and built out on 2026-10-01 (SE1-0077). Every test file is now
+a session of its own with its own client and a fresh world, so the files no longer
+run in name order or share state. `tests/run_pieces.py` runs them side by side on
+client slots cloned from the first Pulsar folder: 19 files, about six minutes
+with six clients. `test_z_survival.py` is `test_survival.py`. A file sets
+its client's plugin options with a module level `UNDO_CONFIG`. `tests/README.md`
+lists the files.
+
+Rows added then, one test each unless noted:
+
+| Area | Drive | Verify |
+|---|---|---|
+| Cube builder by hand | armor block in the hand, look at the station floor, left and right mouse button as raw gameplay input; Ctrl and the left button held while the mouse position of the held input moves; rotation keys with a slope; an interior light | the cell the block landed in, from the cube list before and after; "placed N blocks" as one node whose undo removes the whole line; orientation of the slope after redo and after a removal's undo; the light's entity id after redo |
+| Paint by hand | build color slot set through `settings/build-color`, middle button; Ctrl-Shift and the middle button | the block's color in the cube list; a second paint with the same color records nothing; "painted 274 blocks" as one node, its undo gives every block its own color back, one of them painted before |
+| Cut | Ctrl-X on the pasted wall, Yes, Ctrl-Z, Ctrl-V into the open air, click | one "deleted" node, the wall back under its id, the copy pasted and undone |
+| Linear history | tree option at its default: build two, undo one, build a third; walk to both ends; five builds, then five Ctrl-Z with nothing waited for in between | the undone node is gone, "Nothing to redo", "Nothing to undo"; all five steps taken |
+| HUD text | undo, redo | `GET /v1/hud/notifications` has the texts in order |
+| From a seat | the character still in the cryo chamber it starts in | build, undo, redo |
+| Mixed steps | place, paint, remove another block, paste a grid; undo all, redo all | the world after every step |
+| Steps across a re-created grid | paste a wall, add a block, paint it, delete the wall; undo all four, redo all four | the wall comes back with the block and its paint; the redone steps land on the wall the redo created |
+| Damage | a placed block destroyed with the `DoDamage` call op; a light damaged, removed, restored | no node for the destruction, the placement still goes both ways; the restored light has the damaged integrity |
+| Block state | a light switched off, removed, restored | enabled state, name, color, entity id |
+| Split into four | a plus sign pasted, its middle removed | "removed 1 block, 3 parts split off", one grid again with every cell after undo |
+| Cargo | a pasted grid with a small cargo container holding components and a large one | the deleted grid comes back with the items; the removed container comes back with them; the large container, 3x3x3 cells, comes back by its min cell with its id |
+| Several grids | a blueprint of two grids pasted; the same one grid blueprint pasted twice; the drift ship deleted | "pasted X and 1 more grid" undone and redone as a whole under the old ids; the two pastes are told apart; the ship comes back dynamic with its block ids |
+| Other screens | toolbar config (G) and the pause menu over gameplay, Ctrl-Z | the plugin does not react, the block stays; after closing the screen the undo works |
+| Terminal value kinds | float, bool and color properties set from outside; toolbar actions (`IncreaseRadius`, `OnOff_Off`) through the `action` set op; the block group selected in the block list and one slider moved | undo and redo in the terminal; "changed Radius of 2 blocks" as one node whose undo gives each light its own radius back |
+| Coalescing | three color changes without a pause, one after a pause, then two controls without a pause | one node, one node, two nodes |
+| Program | two programs saved from the editor's OK button (`MyGuiScreenEditor`, typed with `input/type`); two set through the mod API (`SetProgram` call op) | `<Program>` of the block in the saved sector after each undo and redo, down to no program; Ctrl-Z inside the editor does not reach the plugin |
+| Block gone | a property changed, the block removed, another block built in its place | "the block no longer exists" both times; after the build history restored the block the terminal undo works |
+| Other grid | a light of the drift ship switched, undone in the station's terminal | property value |
+| Combobox | the turret controller's Content combobox, three changes on a fresh client, and one after other controls were used | a node each, undo and redo |
+| Many slider changes | twelve bursts of four radius changes | a node per burst, past the 30 calls where the recording used to stop (SE1-0079) |
+| Text boxes elsewhere | the search box of the toolbar config screen and the chat box: two words with a pause, Ctrl-Z and Ctrl-Y past both ends; typing without a pause; typing after an undo; the screen opened again | the text after each step; the build history unchanged; a new box has no history |
+| Options | one client with the bindings on Ctrl-Alt-Z, Ctrl-Alt-Y and Ctrl-Alt-H, 10 nodes per history, full state off, recording outside the terminal off, separate text undo off, notifications off, persistence off, "never store", another storage root | Ctrl-Z is vanilla relative dampeners again; 12 builds leave 10 nodes; a removed light comes back complete under its id without its name; a property set from outside leaves no node, the slider in the terminal does, and Ctrl-Alt-Z with the cursor in the search box undoes it; no HUD notification; no `Undo.xml.gz` in the save; an oversized paste becomes a barrier without a question; status file and grid store under the other root |
+| Contexts off | all three contexts disabled | no node for a build, a paint, a paste, a slider or typed text; Ctrl-Z switches the relative dampeners; Ctrl-H opens no dialog |
+| Always raise | oversized paste with that option | no question, the config budget is 64 MB, undo and redo work |
+| Dialog buttons | the dialog in a world with no backups; Paste, Delete answered with No, Close, Escape, the key pressed twice | no rows; the backup stays; one dialog; the Paste button puts the backup on the clipboard and a click places it |
+| Budget question closed | Escape on the question | a barrier node like on No |
+| Mechanical connections | a rotor, a hinge (placed with the cube builder, the build request cannot turn it) and a piston base built on the station, one armor block on the top part; the base removed, undo, redo, undo; the rotor head removed instead; older steps undone after the restore; a rotor on the drift ship, removed while the ship coasts | base and top part back under their ids, the top grid at its old distance and still there three seconds later, `TopBlockId` of the base in the saved sector; the station and its other blocks keep their ids; the ship is restored where it is now, with its speed; undoing the placement of a rotor leaves no top part behind |
+| A restored block is the block it was | the links rig: lights, a camera, a timer, a button panel, a sensor, an event controller, a remote control, a turret controller, a cargo container with items, a programmable block with a program and Custom Data, a cockpit, a battery, an LCD panel with text, font size, alignment and color, and the offensive, defensive, flight and recorder AI blocks, with toolbar slots, a bound camera, tool and block lists, button names and two block groups between them; each of the 18 blocks removed and restored; the light removed, undone, redone, undone; the timer triggered before and after the light and the timer were restored; the whole grid deleted and restored; the character standing in a removed block's cell | the rig's part of the saved sector is the same as before, block by block and group by group; the trigger switches the light; "something is in the way" and the step stays, then works |
+| Inventory | the container removed and restored twice over undo and redo; a container placed, filled from another one through `inventory_transfer`, the placement undone and redone; the same removal in a world with `TemporaryContainers` off | the items are in the container, the cell is free after a replayed removal, nothing is left lying in it |
+| Redo of a placement | a timer placed, renamed, its delay changed; undo, redo | the same entity id and name, the saved sector as before the undo |
+| Ctrl-Z with nothing to undo | empty build history, dampeners off, Ctrl-Z; then a step to undo, Ctrl-Z | the dampeners come on and the plugin says nothing; with a step the key undoes it and the dampeners stay off |
+| Block toolbar | seated in the station's cockpit, the toolbar screen opened with G, two slots cleared through `character/toolbar/slot` | sitting down records nothing; one node for both slots; undo in the terminal brings both back with their block and action, redo clears them; the saved cockpit has the slots |
+| Custom Data | set twice through the block's property (`custom_data` set op); typed into the Custom Data dialog of the terminal and confirmed with OK | "changed the custom data of X", a node each; undo back to no custom data, redo |
+| Load edge cases | terminal change and a removed block saved and loaded; a paste undone, saved, loaded, redone; garbage in `Undo.xml.gz`; `<Version>` 999 in it; another world loaded in between; the pasted grid cut out of the sector file | both histories back, the block restored under its id; the grid from the store; an empty history and the log line for each broken file, then a good file from the next save; the other world starts empty and the first has its saved history again; the steps of the missing grid are refused and stay |
+
+Two defects came out of this, SE1-0078 and SE1-0079. Both were fixed on 2026-10-02
+and their tests pass without an expected failure mark.
+
+Screenshots were tried and dropped. A frame rarely shows what a step changed, so
+each file instead keeps what the plugin logged per test, the recorded steps and the
+notifications, in `tests/artifacts/<file>.log`.
+
+Still not driven by a test, offline: plane builds and area removal (Ctrl-Shift drag,
+Ctrl and the right button), skins (the offline client owns none), symmetry, the
+config dialog itself and its Grid history button, a rename typed into the Name box
+with its text undo, "restored with changes", the total budget across worlds in game.
+
 Friends (lobby) mode was not run, neither as host nor as joined client. A lobby is a
 Steam lobby (`MyMultiplayer.HostLobby`, `MyGameService.CreateLobby`); a `--no-steam`
 client has no lobby service, DirectTransport only replaces the transport towards a
@@ -812,8 +994,9 @@ at all: that the results of the host's server entry points (`BuildBlockRequestIn
 fix-ups) reach a joined client, and the program request a host sends. SE1-0076 asks
 for a way to host without Steam.
 
-Gaps that need Remote plugin work first (SE1-0060): no endpoint to read or write a PB
-program, painting only in one fixed color, no host lobby endpoint. Table cells and
+Gaps that need Remote plugin work first (SE1-0060): no endpoint to read a PB program
+(the tests read it from the saved sector), `grid-event` paints one fixed color (the
+cube builder tests paint by hand with a chosen one), no host lobby endpoint. Table cells and
 header clicks (SE1-0072) and the save browser's selection (SE1-0073) have workarounds
 in the tests.
 
@@ -830,7 +1013,15 @@ in the tests.
 
 ## 15. Risks and open points
 
-- R1, closed on 2026-10-01, confirmed in game on .NET 10 (Pulsar Interim, Linux).
+- R1, reopened and closed again on 2026-10-02 (SE1-0079). What follows describes a
+  Harmony patch on `MyTerminalValueControl<TBlock, TValue>.SetValue`, which worked for
+  about 30 calls per control class and then stopped recording, when the runtime
+  compiled the shared generic method again. The plugin no longer patches these
+  methods. `TerminalContextPatches.PatchControls` replaces the `Setter` delegate of
+  every value control with one that records around the original; every `SetValue`
+  ends in that delegate. A weak table keeps track of the wrapped controls, the scan
+  runs at the same moments as before. The rest of this entry is history.
+- R1 as first closed on 2026-10-01, confirmed in game on .NET 10 (Pulsar Interim, Linux).
   `MyTerminalValueControl<TBlock, TValue>.SetValue` is patched per closed type, and
   `TBlock` is always a reference type, so the runtime shares one method body among
   all block types. `MethodBase.MethodHandle` is the same for every such

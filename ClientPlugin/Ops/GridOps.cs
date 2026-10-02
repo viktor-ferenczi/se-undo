@@ -10,8 +10,10 @@ using Sandbox.Game.Entities;
 using Sandbox.Game.Multiplayer;
 using Sandbox.Game.SessionComponents;
 using Sandbox.Game.World;
+using VRage;
 using VRage.Game;
 using VRage.Network;
+using VRageMath;
 
 namespace ClientPlugin.Ops;
 
@@ -104,15 +106,33 @@ public class PasteGridsOp : Op
 
 // The grid group as it was before an asynchronous replay on a client, design section
 // 7. Closes the group's current grids, then creates the snapshot again once they are gone.
+//
+// It is also the undo of a removal that takes a rotor, hinge, piston or wheel
+// suspension apart (RazeCapture). The part that came loose is not connected again,
+// which fails in too many ways; the whole group is put back as it was instead.
 public class GroupSnapshotOp : PasteGridsOp
 {
+    // Grids that are not in the snapshot and go with the current ones: the pieces a
+    // removal split off, which the snapshot holds as part of their grid
+    public List<int> Closing = new List<int>();
+
+    // What the removed blocks' inventories dropped into the world (SpillWatch); the
+    // restored group has those items in the blocks again
+    public List<long> Spilled = new List<long>();
+
+    // Index of the stored grid the group follows when it moved since the snapshot,
+    // -1 to put the group back exactly where it was
+    public int Anchor = -1;
+
+    private IEnumerable<int> Current => Grids.Concat(Closing);
+
     public override string Validate(GridRegistry grids)
     {
         if (!UndoSession.Store.Has(Entry))
             return BackupGone;
         if (!Permissions.CanPasteGrids)
             return Permissions.NoCopyPaste;
-        return Grids
+        return Current
             .Select(grids.ResolveGrid)
             .Where(g => g != null)
             .Select(Permissions.CloseRefusal)
@@ -121,12 +141,16 @@ public class GroupSnapshotOp : PasteGridsOp
 
     public override Func<bool> Apply(GridRegistry grids)
     {
-        var current = Grids.Select(grids.ResolveGrid).Where(g => g != null).ToList();
+        var builders = StoredGroups.Load(Entry);
+        if (Anchor >= 0 && Anchor < Grids.Count)
+            Follow(builders, grids.ResolveGrid(Grids[Anchor]));
+
+        Record.SpillWatch.Remove(Spilled);
+        var current = Current.Select(grids.ResolveGrid).Where(g => g != null).ToList();
         var ids = current.Select(g => g.EntityId).ToList();
         foreach (var grid in current)
             grid.SendGridCloseRequest();
 
-        var builders = StoredGroups.Load(Entry);
         Func<bool> created = null;
         return () =>
         {
@@ -138,6 +162,30 @@ public class GroupSnapshotOp : PasteGridsOp
             }
             return created();
         };
+    }
+
+    // Moves the stored group to where its anchor grid is now and gives it the
+    // anchor's velocity, so a ship that flew on does not jump back
+    private void Follow(List<MyObjectBuilder_CubeGrid> builders, MyCubeGrid anchor)
+    {
+        var stored = builders[Anchor].PositionAndOrientation;
+        if (anchor == null || stored == null)
+            return;
+
+        var move = MatrixD.Invert(stored.Value.GetMatrix()) * anchor.WorldMatrix;
+        foreach (var builder in builders)
+        {
+            if (builder.PositionAndOrientation == null)
+                continue;
+            builder.PositionAndOrientation = new MyPositionAndOrientation(
+                builder.PositionAndOrientation.Value.GetMatrix() * move
+            );
+            if (anchor.Physics != null)
+            {
+                builder.LinearVelocity = anchor.Physics.LinearVelocity;
+                builder.AngularVelocity = anchor.Physics.AngularVelocity;
+            }
+        }
     }
 
     // Taken before ops that change these grids are sent from a client. Returns what

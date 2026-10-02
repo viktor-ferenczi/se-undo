@@ -190,7 +190,12 @@ public static class Recorder
             },
             new List<Op>
             {
-                new RazeBlocksOp { Grid = handle, Positions = built.Select(b => b.Min).ToList() },
+                new RazeBlocksOp
+                {
+                    Grid = handle,
+                    Positions = built.Select(b => b.Min).ToList(),
+                    WithTopParts = true,
+                },
             }
         );
     }
@@ -340,6 +345,53 @@ public static class Recorder
             newSource,
             value => new SetProgramOp { Block = blockRef, Source = Gz.Compress(value) },
             (_, _, _) => $"changed the program of {name}"
+        );
+    }
+
+    public static void RecordCustomData(MyTerminalBlock block, string oldData, string newData)
+    {
+        var blockRef = BlockRef.From(block, UndoSession.Document.Grids);
+        var name = block.DisplayNameText;
+        RecordTerminal(
+            "custom data",
+            blockRef.Key,
+            oldData ?? "",
+            newData ?? "",
+            value => new SetCustomDataOp { Block = blockRef, Data = Gz.Compress(value) },
+            (count, _, _) =>
+                count != 1
+                    ? $"changed the custom data of {Plural(count, "block")}"
+                    : $"changed the custom data of {name}"
+        );
+    }
+
+    // One slot of a block's toolbar. Moving an item is two slot changes, which land
+    // in one node: the kind is the toolbar, the slots are its targets.
+    public static void RecordToolbar(
+        MyTerminalBlock block,
+        string toolbar,
+        int index,
+        bool gamepad,
+        string oldItem,
+        string newItem
+    )
+    {
+        var blockRef = BlockRef.From(block, UndoSession.Document.Grids);
+        var name = block.DisplayNameText;
+        RecordTerminal(
+            $"toolbar {blockRef.Key} {toolbar}",
+            $"{index} {gamepad}",
+            oldItem,
+            newItem,
+            value => new SetToolbarSlotOp
+            {
+                Block = blockRef,
+                Toolbar = toolbar,
+                Index = index,
+                Gamepad = gamepad,
+                Item = value,
+            },
+            (_, _, _) => $"changed the toolbar of {name}"
         );
     }
 

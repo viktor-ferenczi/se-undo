@@ -369,3 +369,7 @@ MigrationBackup/
 
 # Python test environment
 .venv/
+
+# Logs of the in game test runs
+/tests/artifacts/
+/.pytest_cache/

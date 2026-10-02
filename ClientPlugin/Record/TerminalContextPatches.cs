@@ -3,14 +3,23 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading;
+using ClientPlugin.History;
 using ClientPlugin.Ops;
+using ClientPlugin.Session;
 using HarmonyLib;
+using Sandbox;
 using Sandbox.Definitions;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Blocks;
 using Sandbox.Game.Entities.Cube;
 using Sandbox.Game.Gui;
+using Sandbox.Game.Screens.Helpers;
+using Sandbox.Game.Screens.Terminal.Controls;
+using Sandbox.Game.World;
 
 namespace ClientPlugin.Record;
 
@@ -19,25 +28,33 @@ namespace ClientPlugin.Record;
 [SuppressMessage("ReSharper", "InconsistentNaming")]
 public static class TerminalContextPatches
 {
-    // Nesting of SetValue calls on this thread: the checkbox and combo box overrides
-    // call the base method, and the Name box calls SetCustomName. Only the outermost
-    // call is the player's change.
+    // Nesting of setter calls on this thread: the Name box's setter calls
+    // SetCustomName, which is hooked too. Only the outermost call is the player's change.
     [ThreadStatic]
     private static int depth;
 
-    private static readonly HashSet<RuntimeMethodHandle> Patched =
-        new HashSet<RuntimeMethodHandle>();
+    // Controls whose setter is wrapped already. Weak, the factory drops its controls
+    // when a session unloads and creates new ones in the next.
+    private static readonly ConditionalWeakTable<object, object> Wrapped =
+        new ConditionalWeakTable<object, object>();
 
-    // Patches MyTerminalValueControl<TBlock, TValue>.SetValue and its overrides for
-    // the controls of every terminal block type that has them. The game creates the
-    // controls of a type with its first block, and the factory forgets them when a
-    // session unloads, so this runs at every session start, after grids arrived, after
-    // a build and when the terminal opens (ControlsMayHaveChanged); a multiplayer
-    // client starts with no grids at all. It patches each method once.
+    private static readonly MethodInfo WrapMethod = typeof(TerminalContextPatches).GetMethod(
+        nameof(Wrap),
+        BindingFlags.NonPublic | BindingFlags.Static
+    );
+
+    // Hooks the value controls of every terminal block type that has them. Each
+    // control holds its setter as a delegate (MyTerminalValueControl.Setter), which
+    // SetValue of every control class ends in; the hook replaces that delegate with
+    // one that records around the original. No Harmony patch is involved: a patch on
+    // the generic SetValue methods got lost after about 30 calls, when the runtime
+    // compiled the method again (SE1-0079).
+    // The game creates the controls of a type with its first block, and the factory
+    // forgets them when a session unloads, so this runs at every session start, after
+    // grids arrived, after a build and when the terminal opens (ControlsMayHaveChanged);
+    // a multiplayer client starts with no grids at all. It wraps each control once.
     // A type without controls is left alone: asking the factory for its controls
     // registers an empty list, and the game then never creates the real ones.
-    // On .NET 10 all instantiations over reference types share one method handle,
-    // so one patch per control class covers every block type, modded ones included.
     private static bool controlsChanged;
     private static DateTime lastPatchUtc;
 
@@ -62,10 +79,6 @@ public static class TerminalContextPatches
         controlsChanged = false;
         lastPatchUtc = DateTime.UtcNow;
         var watch = Stopwatch.StartNew();
-        var harmony = new Harmony(Plugin.Name);
-        var prefix = new HarmonyMethod(typeof(SetValuePatch), nameof(SetValuePatch.Prefix));
-        var postfix = new HarmonyMethod(typeof(SetValuePatch), nameof(SetValuePatch.Postfix));
-        var finalizer = new HarmonyMethod(typeof(SetValuePatch), nameof(SetValuePatch.Finalizer));
 
         var blockTypes = MyDefinitionManager
             .Static.GetAllDefinitions()
@@ -76,7 +89,7 @@ public static class TerminalContextPatches
             .ToList();
 
         var controls = 0;
-        var patched = 0;
+        var wrapped = 0;
         foreach (var blockType in blockTypes)
         {
             try
@@ -85,90 +98,100 @@ public static class TerminalContextPatches
                     continue;
                 foreach (var control in MyTerminalControlFactory.GetControls(blockType))
                 {
-                    var accessor = TerminalValues.AccessorOf(control);
-                    if (accessor == null)
+                    var arguments = TerminalValues.ValueControlArguments(control.GetType());
+                    if (arguments == null || TerminalValues.AccessorOf(control) == null)
                         continue;
 
-                    // The method as its declaring class has it, not as seen from a subclass
                     controls++;
-                    var method = accessor.Set.DeclaringType.GetMethod(
-                        "SetValue",
-                        accessor.Set.GetParameters().Select(p => p.ParameterType).ToArray()
-                    );
-                    if (!Patched.Add(method.MethodHandle))
+                    if (Wrapped.TryGetValue(control, out _))
                         continue;
-
-                    harmony.Patch(method, prefix, postfix, finalizer: finalizer);
-                    patched++;
-                    Log.Debug($"Patched {method.DeclaringType}.SetValue");
+                    if (
+                        (bool)
+                            WrapMethod
+                                .MakeGenericMethod(arguments)
+                                .Invoke(null, new object[] { control })
+                    )
+                    {
+                        Wrapped.Add(control, null);
+                        wrapped++;
+                    }
                 }
             }
             catch (Exception e)
             {
-                // Harmony may refuse a method it sees as patched already; the hooks
-                // count the nesting, so a method patched twice still records once
-                Log.Warning($"Patching the terminal controls of {blockType.Name} failed: {e}");
+                Log.Warning($"Hooking the terminal controls of {blockType.Name} failed: {e}");
             }
         }
         var message =
             $"Terminal controls: {blockTypes.Count} block types, {controls} value controls, "
-            + $"{patched} methods patched in {watch.ElapsedMilliseconds} ms";
-        if (patched != 0)
+            + $"{wrapped} setters hooked in {watch.ElapsedMilliseconds} ms";
+        if (wrapped != 0)
             Log.Info(message);
         else
             Log.Debug(message);
     }
 
-    private static class SetValuePatch
+    // False while the control has no setter yet; the next scan tries again
+    private static bool Wrap<TBlock, TValue>(MyTerminalValueControl<TBlock, TValue> control)
+        where TBlock : MyTerminalBlock
     {
-        public static void Prefix(object __instance, object __0, out string __state)
+        var original = control.Setter;
+        if (original == null)
+            return false;
+
+        control.Setter = (block, value) =>
         {
-            __state = null;
-            if (depth++ != 0 || !Recorder.CanRecordTerminal)
-                return;
-            if (!(__instance is ITerminalControl control) || !(__0 is MyTerminalBlock block))
-                return;
-
-            // With the terminal open, only the blocks it shows: a script setting some
-            // other block's property meanwhile is not the player's change
-            if (
-                !Config.Current.RecordTerminalChangesOutsideTerminal
-                && Array.IndexOf(control.TargetBlocks, block) < 0
-            )
-                return;
-
-            __state = Read(control, block);
-        }
-
-        public static void Postfix(object __instance, object __0, string __state)
-        {
-            if (__state == null)
-                return;
-
-            var control = (ITerminalControl)__instance;
-            var block = (MyTerminalBlock)__0;
-            var value = Read(control, block);
-            if (value != null)
-                Recorder.RecordProperty(block, control.Id, __state, value);
-        }
-
-        public static Exception Finalizer(Exception __exception)
-        {
-            depth--;
-            return __exception;
-        }
-
-        private static string Read(ITerminalControl control, MyTerminalBlock block)
-        {
+            var before = BeforeSet(control, block);
             try
             {
-                return TerminalValues.Read(control, block);
+                original(block, value);
             }
-            catch (Exception e)
+            finally
             {
-                Log.Debug($"Reading {control.Id} of {block.DisplayNameText} failed: {e.Message}");
-                return null;
+                AfterSet(control, block, before);
             }
+        };
+        return true;
+    }
+
+    // The value before the change, null when the change is not to be recorded
+    private static string BeforeSet(ITerminalControl control, MyTerminalBlock block)
+    {
+        if (depth++ != 0 || !Recorder.CanRecordTerminal || block == null)
+            return null;
+
+        // With the terminal open, only the blocks it shows: a script setting some
+        // other block's property meanwhile is not the player's change
+        if (
+            !Config.Current.RecordTerminalChangesOutsideTerminal
+            && Array.IndexOf(control.TargetBlocks, block) < 0
+        )
+            return null;
+
+        return Read(control, block);
+    }
+
+    private static void AfterSet(ITerminalControl control, MyTerminalBlock block, string before)
+    {
+        depth--;
+        if (before == null)
+            return;
+
+        var value = Read(control, block);
+        if (value != null)
+            Recorder.RecordProperty(block, control.Id, before, value);
+    }
+
+    private static string Read(ITerminalControl control, MyTerminalBlock block)
+    {
+        try
+        {
+            return TerminalValues.Read(control, block);
+        }
+        catch (Exception e)
+        {
+            Log.Debug($"Reading {control.Id} of {block.DisplayNameText} failed: {e.Message}");
+            return null;
         }
     }
 
@@ -195,6 +218,74 @@ public static class TerminalContextPatches
     {
         if (depth == 0 && Recorder.CanRecordTerminal)
             Recorder.RecordProperty(block, "Name", block.CustomName.ToString(), name ?? "");
+    }
+
+    // The Custom Data dialog, the mod API and scripts all set this property. What
+    // arrives from the server goes past the setter and is not recorded.
+    [HarmonyPatch(typeof(MyTerminalBlock), nameof(MyTerminalBlock.CustomData), MethodType.Setter)]
+    private static class CustomDataPatch
+    {
+        private static void Prefix(MyTerminalBlock __instance, string value)
+        {
+            if (Recorder.CanRecordTerminal)
+                Recorder.RecordCustomData(__instance, __instance.CustomData, value);
+        }
+    }
+
+    // A slot of a block's toolbar set or cleared: the toolbar screen's drag and drop
+    // and its right click end here. The character's own toolbar has no block as
+    // its owner and is left alone.
+    [HarmonyPatch(
+        typeof(MyToolbar),
+        nameof(MyToolbar.SetItemAtIndex),
+        typeof(int),
+        typeof(MyToolbarItem),
+        typeof(bool)
+    )]
+    private static class ToolbarSlotPatch
+    {
+        private static void Prefix(MyToolbar __instance, int i, bool gamepad, out string __state)
+        {
+            __state = CanRecordToolbar(__instance) ? Slot(__instance, i, gamepad) : null;
+        }
+
+        private static void Postfix(MyToolbar __instance, int i, bool gamepad, string __state)
+        {
+            if (__state == null)
+                return;
+
+            var block = (MyTerminalBlock)__instance.Owner;
+            var toolbar = BlockToolbars.NameOf(block, __instance);
+            var item = Slot(__instance, i, gamepad);
+            if (toolbar != null && item != null && item != __state)
+                Recorder.RecordToolbar(block, toolbar, i, gamepad, __state, item);
+        }
+
+        // Only while the toolbar screen is open, which is where a player changes a
+        // block's toolbar. The game sets slots by itself too: it fills a cockpit's
+        // toolbar when someone sits down.
+        private static bool CanRecordToolbar(MyToolbar toolbar) =>
+            toolbar.Owner is MyTerminalBlock
+            && UndoSession.Document != null
+            && !Replay.Active
+            && Config.Current.EnableTerminalContext
+            && MyGuiScreenToolbarConfigBase.Static != null
+            && Thread.CurrentThread == MySandboxGame.Static.UpdateThread;
+
+        private static string Slot(MyToolbar toolbar, int index, bool gamepad)
+        {
+            try
+            {
+                return BlockToolbars.Write(
+                    gamepad ? toolbar.GetItemAtIndexGamepad(index) : toolbar.GetItemAtIndex(index)
+                );
+            }
+            catch (Exception e)
+            {
+                Log.Debug($"Reading a toolbar slot failed: {e.Message}");
+                return null;
+            }
+        }
     }
 
     [HarmonyPatch(typeof(MyCubeGrid), nameof(MyCubeGrid.ChangeDisplayNameRequest))]

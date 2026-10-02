@@ -34,6 +34,8 @@ sys.path.insert(0, str(REMOTE_REPO / "skills" / "se-remote"))
 from se_remote import RemoteAPI  # noqa: E402
 
 WINDOWED = os.environ.get("UNDO_WINDOWED") == "1"
+# Logs of the test runs, not committed
+ARTIFACTS = REPO / "tests" / "artifacts"
 
 
 class Client:
@@ -65,16 +67,30 @@ class Client:
             "minimal",
             "--resolution",
             "1280x720",
+            # No test listens. Headless alone only mutes the output, this also
+            # keeps the game from loading its sounds.
+            "--no-audio",
         ]
+        # More options for a run by hand, like "--max-fps 30"
+        args += os.environ.get("UNDO_EXTRA_ARGS", "").split()
         # UNDO_WINDOWED=1 opens a real window, for checks done by hand
         return args if WINDOWED else args + ["--headless"]
 
 
+# Slot 0 is the Pulsar folder set up by hand (tests/README.md). Every further slot is
+# a client of its own, cloned from slot 0 on first use, so the test files can run
+# side by side: UNDO_SLOT=3 uv run pytest tests/test_terminal.py
+SLOT = int(os.environ.get("UNDO_SLOT", "0"))
+BASE_PULSAR = HOME / ".se-test/undo"
+LAUNCHER = "UndoInterim.bin"
+_NAME = "undo" if SLOT == 0 else f"undo-s{SLOT}"
+
 CLIENT = Client(
-    os.environ.get("UNDO_PULSAR_DIR", HOME / ".se-test/undo"),
-    "UndoInterim.bin",
-    os.environ.get("UNDO_APPDATA", HOME / ".se-test/undo-data"),
-    int(os.environ.get("UNDO_REMOTE_PORT", "24176")),
+    os.environ.get("UNDO_PULSAR_DIR", HOME / ".se-test" / _NAME),
+    LAUNCHER,
+    os.environ.get("UNDO_APPDATA", HOME / ".se-test" / f"{_NAME}-data"),
+    # 24177 is the dedicated server rig's client
+    int(os.environ.get("UNDO_REMOTE_PORT", 24176 if SLOT == 0 else 24180 + SLOT)),
 )
 PULSAR_DIR = CLIENT.pulsar
 APPDATA = CLIENT.appdata
@@ -271,8 +287,7 @@ def station_xml(position, forward, up) -> str:
     blocks.append(_light(SECOND_LIGHT, "Undo Light 2"))
     blocks.append(_light(PART_B_LIGHT, "Part B Light"))
     blocks.append(_light(PAINT_LIGHT, "Paint Light"))
-    # Turned so its keyboard faces the floor. No test uses it yet (SE1-0060); it is there for
-    # checking program undo by hand.
+    # Turned so its keyboard faces the floor, where the character stands to open it
     blocks.append(
         _block(
             "MyObjectBuilder_MyProgrammableBlock",
@@ -312,25 +327,260 @@ def drift_ship_xml(position, forward, up) -> str:
     return _grid(DRIFT_SHIP_NAME, DRIFT_SHIP_ID, blocks, position, forward, up, False)
 
 
-def blueprint_xml(name: str, cells, static: bool = True, blocks: str = "") -> str:
-    """A bp.sbc document with one large grid of armor blocks, for the paste tests"""
-    blocks = "".join(_armor(p) for p in cells) + blocks
+# ---------------------------------------------------------------------------
+# The links rig: a second station whose blocks point at each other in every way the
+# tests can check, for the "a restored block is the block it was" tests
+# ---------------------------------------------------------------------------
+
+LINKS_NAME = "Undo Links Rig"
+LINKS_ID = 777000556000001
+LINKS_FLOOR = [(x, 0, z) for x in range(8) for z in range(3)]
+LINKS = {
+    "light": (0, 1, 0),
+    "light2": (1, 1, 0),
+    "camera": (2, 1, 0),
+    "timer": (3, 1, 0),
+    "buttons": (4, 1, 0),
+    "sensor": (5, 1, 0),
+    "event": (6, 1, 0),
+    "remote": (7, 1, 0),
+    "turret": (0, 1, 2),
+    "cargo": (1, 1, 2),
+    "program": (2, 1, 2),
+    "cockpit": (4, 1, 2),
+    "battery": (6, 1, 2),
+    "lcd": (3, 1, 2),
+    "offensive": (7, 1, 2),
+    "defensive": (5, 1, 2),
+    "flight": (0, 1, 1),
+    "recorder": (7, 1, 1),
+}
+LINKS_LCD_TEXT = "Hello from the LCD"
+LINKS_IDS = {name: 777000556000011 + i for i, name in enumerate(LINKS)}
+LINKS_GROUP = "Links Group"
+LINKS_ITEMS = {"SteelPlate": 7, "Motor": 3}
+LINKS_PROGRAM = "void Main() { Echo(Storage); }"
+
+
+def _slot(index: int, target: str, action: str = "OnOff") -> str:
+    return _toolbar_slot(index, LINKS_IDS[target]).replace(
+        "<Action>OnOff</Action>", f"<Action>{action}</Action>"
+    )
+
+
+def _toolbar(kind: str, slots: str, tag: str = "Toolbar") -> str:
+    return (
+        f"<{tag}><ToolbarType>{kind}</ToolbarType>"
+        f'<SelectedSlot xsi:nil="true" /><Slots>{slots}</Slots></{tag}>'
+    )
+
+
+def links_xml(position, forward, up) -> str:
+    def block(name, xsi_type, subtype, extra="", **kwargs):
+        return _block(
+            f"MyObjectBuilder_{xsi_type}",
+            subtype,
+            LINKS[name],
+            f"<CustomName>Links {name}</CustomName>{extra}",
+            entity_id=LINKS_IDS[name],
+            **kwargs,
+        )
+
+    # Lights, the camera and the sensor mount with their back, which faces down
+    # this way. A block that is not mounted splits off at the first removal.
+    light = dict(forward="Up", up="Backward")
+    ids = LINKS_IDS
+    blocks = [_armor(p) for p in LINKS_FLOOR]
+    blocks += [
+        block(
+            "light", "InteriorLight", "SmallLight", "<Enabled>true</Enabled>", **light
+        ),
+        block(
+            "light2", "InteriorLight", "SmallLight", "<Enabled>false</Enabled>", **light
+        ),
+        block("camera", "CameraBlock", "LargeCameraBlock", **light),
+        block(
+            "timer",
+            "TimerBlock",
+            "TimerBlockLarge",
+            _toolbar("Character", _slot(0, "light") + _slot(1, "light2"))
+            + "<Delay>3000</Delay>",
+        ),
+        block(
+            "buttons",
+            "ButtonPanel",
+            "ButtonPanelLarge",
+            _toolbar("Character", _slot(0, "light") + _slot(2, "light2"))
+            + "<AnyoneCanUse>true</AnyoneCanUse><CustomButtonNames><dictionary>"
+            "<item><Key>0</Key><Value>Lamp</Value></item>"
+            "</dictionary></CustomButtonNames>",
+        ),
+        block(
+            "sensor",
+            "SensorBlock",
+            "LargeBlockSensor",
+            _toolbar("Character", _slot(0, "light2") + _slot(1, "light"))
+            + "<DetectPlayers>false</DetectPlayers>",
+            **light,
+        ),
+        block(
+            "event",
+            "EventControllerBlock",
+            "EventControllerLarge",
+            _toolbar("Character", _slot(0, "light2"))
+            + f"<SelectedBlocks><long>{ids['light']}</long><long>{ids['camera']}</long></SelectedBlocks>",
+        ),
+        block(
+            "remote",
+            "RemoteControl",
+            "LargeBlockRemoteControl",
+            f"<BindedCamera>{ids['camera']}</BindedCamera>",
+        ),
+        block(
+            "turret",
+            "TurretControlBlock",
+            "LargeTurretControlBlock",
+            f"<CameraId>{ids['camera']}</CameraId>"
+            f"<ToolIds><long>{ids['light']}</long><long>{ids['light2']}</long></ToolIds>",
+        ),
+        cargo_container(
+            LINKS["cargo"],
+            "LargeBlockSmallContainer",
+            LINKS_ITEMS,
+            entity_id=ids["cargo"],
+            extra="<CustomName>Links cargo</CustomName>",
+        ),
+        block(
+            "program",
+            "MyProgrammableBlock",
+            "LargeProgrammableBlock",
+            f"<Program>{LINKS_PROGRAM}</Program>",
+        ),
+        block(
+            "cockpit",
+            "Cockpit",
+            "LargeBlockCockpit",
+            _toolbar(
+                "Ship",
+                _slot(0, "light")
+                + _slot(3, "camera", "View")
+                + _slot(4, "timer", "TriggerNow"),
+            ),
+        ),
+        block(
+            "lcd",
+            "TextPanel",
+            "LargeLCDPanel",
+            f"<PublicDescription>{LINKS_LCD_TEXT}</PublicDescription>"
+            "<FontSize>2.5</FontSize><ContentType>TEXT_AND_IMAGE</ContentType>"
+            "<Alignment>Align_Center</Alignment><TextPadding>7</TextPadding>"
+            "<FontColor><PackedValue>4278255615</PackedValue></FontColor>",
+            # The panel mounts with its front side
+            forward="Down",
+            up="Forward",
+        ),
+        # The AI blocks, each with a toolbar of its own
+        block(
+            "offensive",
+            "OffensiveCombatBlock",
+            "LargeOffensiveCombat",
+            _toolbar("Character", _slot(0, "light") + _slot(1, "timer", "TriggerNow")),
+        ),
+        block("defensive", "DefensiveCombatBlock", "LargeDefensiveCombat"),
+        block(
+            "flight",
+            "FlightMovementBlock",
+            "LargeFlightMovement",
+            _toolbar("Character", _slot(0, "light2")),
+        ),
+        block("recorder", "PathRecorderBlock", "LargePathRecorderBlock"),
+        # Power for the timer, whose toolbar a test triggers
+        block(
+            "battery",
+            "BatteryBlock",
+            "LargeBlockBatteryBlock",
+            "<Enabled>true</Enabled><CurrentStoredPower>3</CurrentStoredPower>"
+            "<ProducerEnabled>true</ProducerEnabled>",
+        ),
+    ]
+    groups = (
+        "<BlockGroups>"
+        + _group(LINKS_GROUP, [LINKS["light"], LINKS["light2"], LINKS["camera"]])
+        + _group("Links Other", [LINKS["cargo"], LINKS["light"]])
+        + "</BlockGroups>"
+    )
+    return _grid(LINKS_NAME, LINKS_ID, blocks, position, forward, up, True, groups)
+
+
+def _blueprint_grid(
+    name: str, blocks: str, static: bool, position=(0, 0, 0), entity_id: int = 0
+) -> str:
+    # Grids of one blueprint need different ids: the paste gives each id a new
+    # one, and two grids without an id would end up as the same entity
+    entity = f"<EntityId>{entity_id}</EntityId>" if entity_id else ""
+    return (
+        f"<CubeGrid><SubtypeName />{entity}"
+        "<PersistentFlags>CastShadows InScene</PersistentFlags>"
+        f"<PositionAndOrientation>{_vec('Position', position)}"
+        '<Forward x="0" y="0" z="-1" /><Up x="0" y="1" z="0" /></PositionAndOrientation>'
+        f"<GridSizeEnum>Large</GridSizeEnum><CubeBlocks>{blocks}</CubeBlocks>"
+        # Unsupported, a static grid out of voxel contact would turn into a ship
+        f"<IsStatic>{'true' if static else 'false'}</IsStatic>"
+        f"<IsUnsupportedStation>{'true' if static else 'false'}</IsUnsupportedStation>"
+        f"<DisplayName>{name}</DisplayName></CubeGrid>"
+    )
+
+
+def _blueprint(name: str, grids: str) -> str:
     return (
         '<?xml version="1.0"?>'
         '<Definitions xmlns:xsd="http://www.w3.org/2001/XMLSchema" '
         'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><ShipBlueprints>'
         '<ShipBlueprint xsi:type="MyObjectBuilder_ShipBlueprintDefinition">'
         f'<Id Type="MyObjectBuilder_ShipBlueprintDefinition" Subtype="{name}" />'
-        "<CubeGrids><CubeGrid><SubtypeName />"
-        "<PersistentFlags>CastShadows InScene</PersistentFlags>"
-        '<PositionAndOrientation><Position x="0" y="0" z="0" />'
-        '<Forward x="0" y="0" z="-1" /><Up x="0" y="1" z="0" /></PositionAndOrientation>'
-        f"<GridSizeEnum>Large</GridSizeEnum><CubeBlocks>{blocks}</CubeBlocks>"
-        # Unsupported, a static grid out of voxel contact would turn into a ship
-        f"<IsStatic>{'true' if static else 'false'}</IsStatic>"
-        f"<IsUnsupportedStation>{'true' if static else 'false'}</IsUnsupportedStation>"
-        f"<DisplayName>{name}</DisplayName></CubeGrid></CubeGrids>"
+        f"<CubeGrids>{grids}</CubeGrids>"
         "</ShipBlueprint></ShipBlueprints></Definitions>"
+    )
+
+
+def blueprint_xml(name: str, cells, static: bool = True, blocks: str = "") -> str:
+    """A bp.sbc document with one large grid of armor blocks, for the paste tests"""
+    blocks = "".join(_armor(p) for p in cells) + blocks
+    return _blueprint(name, _blueprint_grid(name, blocks, static))
+
+
+def blueprint_grids_xml(grids) -> str:
+    """A blueprint of several separate grids of armor blocks: (name, cells, offset
+    in metres) each. The first one names the blueprint."""
+    return _blueprint(
+        grids[0][0],
+        "".join(
+            _blueprint_grid(name, "".join(_armor(p) for p in cells), True, offset, i)
+            for i, (name, cells, offset) in enumerate(grids, start=1)
+        ),
+    )
+
+
+def cargo_container(
+    pos, subtype: str, items: dict[str, int], entity_id: int = 0, extra: str = ""
+) -> str:
+    """A cargo container holding components, by subtype and amount"""
+    content = "".join(
+        "<MyObjectBuilder_InventoryItem>"
+        f"<Amount>{amount}</Amount>"
+        f'<PhysicalContent xsi:type="MyObjectBuilder_Component"><SubtypeName>{item}</SubtypeName></PhysicalContent>'
+        f"<ItemId>{index}</ItemId></MyObjectBuilder_InventoryItem>"
+        for index, (item, amount) in enumerate(items.items())
+    )
+    return _block(
+        "MyObjectBuilder_CargoContainer",
+        subtype,
+        pos,
+        f"{extra}<ComponentContainer><Components><ComponentData><TypeId>MyInventoryBase</TypeId>"
+        f'<Component xsi:type="MyObjectBuilder_Inventory"><Items>{content}</Items>'
+        f"<nextItemId>{len(items)}</nextItemId></Component></ComponentData></Components>"
+        "</ComponentContainer>",
+        entity_id=entity_id,
     )
 
 
@@ -410,8 +660,11 @@ def station_point(cell) -> list[float]:
     ]
 
 
-def prepare_world(world: Path = WORLD, mode: str = "Creative") -> Path:
-    """Fresh copy of the Remote suite's Earth world with the test station."""
+def prepare_world(
+    world: Path = WORLD, mode: str = "Creative", settings: dict | None = None
+) -> Path:
+    """Fresh copy of the Remote suite's Earth world with the test station.
+    settings changes session settings of the world, by element name."""
     # A grid store an earlier copy of this world left, keyed by folder name and id
     for store in (APPDATA / "Undo" / "Worlds").glob(f"{world.name}*"):
         shutil.rmtree(store)
@@ -436,6 +689,14 @@ def prepare_world(world: Path = WORLD, mode: str = "Creative") -> Path:
         # Pasting in creative needs it, by hand and for undo
         text = text.replace("<EnableCopyPaste>false", "<EnableCopyPaste>true")
         text = text.replace("<EnableIngameScripts>false", "<EnableIngameScripts>true")
+        for key, value in (settings or {}).items():
+            text, count = re.subn(
+                rf"<{key}>[^<]*</{key}>", f"<{key}>{value}</{key}>", text
+            )
+            if not count:
+                text = text.replace(
+                    "</Settings>", f"<{key}>{value}</{key}></Settings>", 1
+                )
         path.write_text(text, encoding="utf-8")
 
     sector = world / "SANDBOX_0_0_0_.sbs"
@@ -444,6 +705,8 @@ def prepare_world(world: Path = WORLD, mode: str = "Creative") -> Path:
     position, forward, up = station_frame(text)
     far = [c * DRIFT_DISTANCE_M for c in up]
     grids = station_xml(position, forward, up) + drift_ship_xml(far, forward, up)
+    # The links rig floats 60 m above the test station
+    grids += links_xml([p + 60 * u for p, u in zip(position, up)], forward, up)
     text = text.replace("</SectorObjects>", grids + "</SectorObjects>", 1)
     sector.write_text(text, encoding="utf-8")
 
@@ -465,6 +728,7 @@ def write_configs(client: Client = CLIENT, undo_config: dict | None = None) -> N
     options = "".join(
         f"  <{key}>{value}</{key}>\n"
         for key, value in (undo_config or UNDO_CONFIG).items()
+        if value is not None
     )
     (appdata / "Storage" / "Undo.cfg").write_text(
         '<?xml version="1.0" encoding="utf-8"?>\n'
@@ -505,6 +769,29 @@ def write_configs(client: Client = CLIENT, undo_config: dict | None = None) -> N
     game_cfg.write_text(text, encoding="utf-8")
 
 
+def ensure_pulsar(client: Client = CLIENT) -> None:
+    """Clones the Pulsar folder of slot 0 for another slot, the way
+    notes/pulsar-dev-instances/new-pulsar-instance.sh does: launcher files copied,
+    the large read only trees linked, the plugin sources, profile and build cache
+    copied, the Preloader folder left for the first launch to create."""
+    if client.launcher.exists():
+        return
+    if not (BASE_PULSAR / LAUNCHER).exists():
+        raise RuntimeError(f"{BASE_PULSAR} is not set up, see tests/README.md")
+    client.pulsar.mkdir(parents=True)
+    for entry in BASE_PULSAR.iterdir():
+        target = client.pulsar / entry.name
+        if entry.is_symlink():
+            target.symlink_to(entry.resolve())
+        elif entry.is_file():
+            shutil.copy2(entry, target)
+    shutil.copytree(
+        BASE_PULSAR / "Legacy",
+        client.pulsar / "Legacy",
+        ignore=shutil.ignore_patterns("Preloader", "info.log"),
+    )
+
+
 def running_pid(client: Client = CLIENT) -> int | None:
     try:
         pid = int(client.pid_file.read_text().strip())
@@ -520,6 +807,7 @@ def launch(client: Client = CLIENT, extra_args=(), undo_config=None) -> int:
         raise RuntimeError(
             f"The test client is already running, pid {running_pid(client)}"
         )
+    ensure_pulsar(client)
     write_configs(client, undo_config)
     log = open(client.launch_log, "w")
     process = subprocess.Popen(
@@ -613,10 +901,15 @@ def wait_world(client: RemoteAPI, timeout: float = 420.0) -> None:
     while time.monotonic() < deadline:
         time.sleep(2)
         try:
-            boxes = _message_boxes(client)
+            screens = client.list_screens()
+            boxes = [s for s in screens if s.get("type") == "MyGuiScreenMessageBox"]
             for box in boxes:
                 client.control_click(text="OK", screen=box["index"])
-            stable = stable + 1 if not boxes and client.get_state().get("active") else 0
+            # A load that is about to fail on the "needs XML" box reports an active
+            # session for a few seconds too, but never gets to the gameplay screen
+            playing = any(s.get("type") == "MyGuiScreenGamePlay" for s in screens)
+            ready = not boxes and playing and client.get_state().get("active")
+            stable = stable + 1 if ready else 0
             if stable >= 3:
                 return
         except Exception:  # noqa: BLE001 -- the API answers 500 while loading
@@ -651,17 +944,25 @@ def ensure_character(client: RemoteAPI, timeout: float = 90.0) -> dict:
 
 def focus_gameplay(client: RemoteAPI, timeout: float = 30.0) -> None:
     """Closes the welcome screen and anything else above the gameplay screen, so
-    the build context is active"""
+    the build context is active.
+
+    A screen is closed by its index, and the list changes while a world starts,
+    so it has to read the same twice first. The loading screen is left to finish
+    by itself: it is what adds the HUD screen, and a world without that crashes
+    when the character leaves its seat."""
+    keep = ("MyGuiScreenGamePlay", "MyGuiScreenHudSpace")
+
+    def kinds():
+        return [s.get("type") for s in client.list_screens()]
+
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        screens = client.list_screens()
-        extra = [
-            i
-            for i, s in enumerate(screens)
-            if s.get("type") not in ("MyGuiScreenGamePlay", "MyGuiScreenHudSpace")
-        ]
-        if not extra:
+        screens = kinds()
+        extra = [i for i, kind in enumerate(screens) if kind not in keep]
+        if not extra and set(keep) <= set(screens):
             return
-        client.close_screen(extra[-1])
-        time.sleep(0.5)
+        time.sleep(0.3)
+        if extra and "MyGuiScreenLoading" not in screens and kinds() == screens:
+            client.close_screen(extra[-1])
+            time.sleep(0.3)
     raise TimeoutError("Could not get back to the gameplay screen")

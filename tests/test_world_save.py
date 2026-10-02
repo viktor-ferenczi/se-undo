@@ -45,15 +45,23 @@ def save(game, name: str | None = None) -> Path:
         "the history file in the save",
         timeout=60,
     )
+
     # The backup is the last step of a save. It is copied file by file, so the
     # history file being there does not mean the voxel files are.
-    wait_until(
-        lambda: (newest_backup(folder) / FILE).exists()
-        and (newest_backup(folder) / FILE).read_bytes() == target.read_bytes()
-        and top_level_files(newest_backup(folder)) == top_level_files(folder),
-        "the backup of the save",
-        timeout=60,
-    )
+    def backed_up() -> bool:
+        try:
+            backup = newest_backup(folder)
+            return (
+                backup / FILE
+            ).read_bytes() == target.read_bytes() and top_level_files(
+                backup
+            ) == top_level_files(
+                folder
+            )
+        except (OSError, ValueError):  # no backup folder yet, or still being copied
+            return False
+
+    wait_until(backed_up, "the backup of the save", timeout=60)
     return folder
 
 

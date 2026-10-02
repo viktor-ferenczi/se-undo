@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using ClientPlugin.Apply;
 using ClientPlugin.History;
+using Sandbox.Definitions;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Multiplayer;
 using VRage.Utils;
@@ -19,13 +20,33 @@ public class BuildBlocksOp : Op
     public string Skin;
     public List<BlockPlacement> Blocks = new List<BlockPlacement>();
 
+    // The blocks as they were when the placement was last undone, saved by that undo
+    // (RazeBlocksOp.Prepare): what the player set on them since they were placed, and
+    // what they held. Redo puts these back instead of new blocks from the definition.
+    // Snapshot stands in for Restore where a block is one the single block restore
+    // cannot handle, a rotor base for one; it holds the whole grid group.
+    public RestoreBlocksOp Restore;
+    public GroupSnapshotOp Snapshot;
+
     public override IEnumerable<int> GridHandles() => new[] { Grid };
+
+    public override IEnumerable<string> StoreRefs() =>
+        Snapshot == null ? Enumerable.Empty<string>() : Snapshot.StoreRefs();
+
+    // The saved state needs what a full restore needs; without it the blocks are
+    // built from their definition, which a survival player can do by hand
+    private Op Saved =>
+        !RestoreBlocksOp.FullState ? null
+        : Snapshot != null ? Snapshot
+        : Restore;
 
     public override string Validate(GridRegistry grids)
     {
         var grid = grids.ResolveGrid(Grid);
         if (grid == null)
             return GameAccess.GridMissing;
+        if (Saved != null)
+            return Saved.Validate(grids);
         return Permissions.HasComponentsFor(grid, Locations(Blocks))
             ? null
             : Permissions.MissingComponents;
@@ -33,12 +54,36 @@ public class BuildBlocksOp : Op
 
     public override Func<bool> Apply(GridRegistry grids)
     {
+        if (Saved != null)
+            return Saved.Apply(grids);
+
         var grid = grids.ResolveGrid(Grid);
+        if (Sync.IsServer && Blocks.Any(b => Blocked(grid, b)))
+            throw new OpRefusedException(Permissions.InTheWay);
+
         Build(grid, Blocks, ColorHsv, Skin);
 
         if (Sync.IsServer)
+        {
+            // A local server builds inside the request
+            var missing = Blocks.Count(b => grid.BlockAt(b.Min) == null);
+            if (missing != 0)
+                Executor.Remark($"{Record.Recorder.Plural(missing, "block")} could not be placed");
             return null;
+        }
         return () => Blocks.All(b => grid.BlockAt(b.Min) != null);
+    }
+
+    // The build request returns without a word when something is in the way
+    private static bool Blocked(MyCubeGrid grid, BlockPlacement block)
+    {
+        var location = block.ToLocation(GameAccess.LocalIdentityId);
+        MyDefinitionManager.Static.TryGetCubeBlockDefinition(
+            location.BlockDefinition,
+            out var definition
+        );
+        return definition == null
+            || !grid.CanPlaceBlock(location.Min, location.Max, location.Orientation, definition);
     }
 
     public static HashSet<MyCubeGrid.MyBlockLocation> Locations(
