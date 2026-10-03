@@ -12,7 +12,6 @@ using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Blocks;
 using Sandbox.Game.Entities.Cube;
 using Sandbox.Game.Gui;
-using Sandbox.Game.Multiplayer;
 using VRage.Utils;
 using VRageMath;
 
@@ -26,17 +25,13 @@ public static class Recorder
     private static PaintStroke stroke;
     private static TerminalStroke terminalStroke;
 
-    // Grids a client asked to paste blocks into, until the server's broadcast arrives
-    private static readonly Dictionary<MyCubeGrid, DateTime> expectedMerges =
-        new Dictionary<MyCubeGrid, DateTime>();
-
     public static bool CanRecord =>
-        UndoSession.Document != null && !Replay.Active && Config.Current.EnableBuildContext;
+        UndoSession.Active && !Replay.Active && Config.Current.EnableBuildContext;
 
     // Terminal changes are recorded while the terminal is open, or always with the
     // option on. Main thread only: mods may set properties from worker threads.
     public static bool CanRecordTerminal =>
-        UndoSession.Document != null
+        UndoSession.Active
         && !Replay.Active
         && Config.Current.EnableTerminalContext
         && (Config.Current.RecordTerminalChangesOutsideTerminal || MyGuiScreenTerminal.IsOpen)
@@ -59,7 +54,6 @@ public static class Recorder
             capture.Abort();
         settling.Clear();
         held = 0;
-        expectedMerges.Clear();
         stroke = null;
         terminalStroke = null;
     }
@@ -85,10 +79,6 @@ public static class Recorder
                 Log.Error($"Recording a {capture.GetType().Name} failed, it cannot be undone: {e}");
             }
         }
-
-        var now = DateTime.UtcNow;
-        foreach (var grid in expectedMerges.Where(e => e.Value < now).Select(e => e.Key).ToList())
-            expectedMerges.Remove(grid);
     }
 
     // Commits the paint stroke and the terminal changes being coalesced, if any
@@ -148,8 +138,8 @@ public static class Recorder
     public static string Plural(int count, string noun) =>
         count == 1 ? $"1 {noun}" : $"{count} {noun}s";
 
-    // Blocks the player asked for. Where the server is local the request already ran,
-    // so only blocks that exist now count; a client records what it asked for.
+    // Blocks the player asked for. The local server already ran the request, so only
+    // blocks that exist now count.
     public static void RecordBuild(
         MyCubeGrid grid,
         Vector3 colorHsv,
@@ -157,18 +147,14 @@ public static class Recorder
         List<BlockPlacement> requested
     )
     {
-        var built = requested;
-        if (Sync.IsServer)
+        var built = new List<BlockPlacement>();
+        foreach (var placement in requested)
         {
-            built = new List<BlockPlacement>();
-            foreach (var placement in requested)
-            {
-                var block = grid.BlockAt(placement.Min);
-                if (block == null || block.BlockDefinition.Id.ToString() != placement.Definition)
-                    continue;
-                placement.EntityId = block.FatBlock?.EntityId ?? 0;
-                built.Add(placement);
-            }
+            var block = grid.BlockAt(placement.Min);
+            if (block == null || block.BlockDefinition.Id.ToString() != placement.Definition)
+                continue;
+            placement.EntityId = block.FatBlock?.EntityId ?? 0;
+            built.Add(placement);
         }
         if (built.Count == 0)
             return;
@@ -209,41 +195,24 @@ public static class Recorder
 
     // Grids a paste or a single block placement created. Redo creates them again from
     // the store, undo closes them. The label gets the grid description at {0}.
-    public static void RecordCreated(
-        List<MyCubeGrid> grids,
-        StoreReason reason,
-        string label,
-        bool referenceLost
-    )
+    public static void RecordCreated(List<MyCubeGrid> grids, StoreReason reason, string label)
     {
         var handles = grids.Select(Handle).ToList();
         StoredGroups.Save(
             StoredGroups.Capture(grids),
             reason,
             row =>
-            {
-                var node = Commit(
+                Commit(
                     string.Format(label, Describe(row)),
                     new List<Op>
                     {
                         new PasteGridsOp { Entry = row.Id, Grids = handles },
                     },
                     new List<Op> { new CloseGridsOp { Grids = handles } }
-                );
-                if (referenceLost)
-                {
-                    node.ReferenceLost = true;
-                    UndoSession.Changed();
-                }
-            },
+                ),
             row => CommitBarrier(string.Format(label, Describe(row)))
         );
     }
-
-    public static void ExpectMerge(MyCubeGrid grid) =>
-        expectedMerges[grid] = DateTime.UtcNow.AddSeconds(Config.Current.PendingOperationTimeoutS);
-
-    public static bool TakeMergeExpectation(MyCubeGrid grid) => expectedMerges.Remove(grid);
 
     // Blocks a paste put into an existing grid: the grid's blocks now, minus the ones
     // it had before. Redo restores them like removed blocks, which keeps their ids

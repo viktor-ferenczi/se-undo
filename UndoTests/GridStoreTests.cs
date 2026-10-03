@@ -84,14 +84,14 @@ public sealed class GridStoreTests : IDisposable
     [Fact]
     public void IndexKeepsEveryRowFieldAcrossReload()
     {
-        var written = new GridStoreFolder(folder).Add(Xml, Row(StoreReason.Split));
+        var written = new GridStoreFolder(folder).Add(Xml, Row(StoreReason.Snapshot));
 
         var reloaded = new GridStoreFolder(folder);
         var row = Assert.Single(reloaded.Index.Rows);
         Assert.Equal(written.Id, row.Id);
         Assert.Equal(written.TimestampUtc, row.TimestampUtc);
         Assert.Equal(DateTimeKind.Utc, row.TimestampUtc.Kind);
-        Assert.Equal(StoreReason.Split, row.Reason);
+        Assert.Equal(StoreReason.Snapshot, row.Reason);
         Assert.Equal("Ship & \"Co\"", row.MainGridName);
         Assert.Equal(2, row.GridCount);
         Assert.Equal(42, row.BlockCount);

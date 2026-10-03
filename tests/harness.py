@@ -167,6 +167,26 @@ class Game:
         assert self.build()["current"] == 0
         self.quiet(lambda: self.api.key(*self.undo_key))
 
+    def vanilla_keys(self) -> None:
+        """Ctrl-Z is relative dampeners, and Ctrl-H does not open the grid history.
+        Works without a status file, so on a client too."""
+        api = self.api
+
+        def dampeners():
+            return api.get_character()["dampeners"]
+
+        if dampeners():
+            api.key("Z")
+            wait_until(lambda: not dampeners(), "dampeners off")
+        api.key("Z", ["LeftControl"])
+        wait_until(dampeners, "relative dampeners on Ctrl-Z")
+
+        api.key("H", ["LeftControl"])
+        time.sleep(1)
+        assert self.screen("GridHistoryScreen") is None
+        # Vanilla toggles the render profiler on it; once more puts it back
+        api.key("H", ["LeftControl"])
+
     def quiet(self, press, wait: float = 0.7) -> None:
         """Runs press, which must not make the plugin react: no status write"""
         marker = self.status_file.stat().st_mtime_ns

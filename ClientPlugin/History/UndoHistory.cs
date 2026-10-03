@@ -208,11 +208,4 @@ public sealed class PendingOp
 
     // The op did not complete in time or failed: the node's result is unknown
     public bool TimedOut;
-
-    // The op restores the node's group snapshot instead of replaying its ops
-    public bool ViaSnapshot;
-
-    // Writes the group snapshot taken before the replay to the grid store and returns
-    // the op that restores it; called only when the result turned out unknown
-    public Func<Op> SaveSnapshot;
 }

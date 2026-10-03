@@ -20,10 +20,6 @@ public class SplitPiece
 {
     public int Grid;
     public Vector3I Key;
-
-    // Grid store entry of the piece as it was right after the split, captured on
-    // multiplayer clients only
-    public string Entry;
 }
 
 public class RazeBlocksOp : Op
@@ -39,24 +35,17 @@ public class RazeBlocksOp : Op
 
     public override IEnumerable<int> GridHandles() => new[] { Grid };
 
-    public override IEnumerable<string> StoreRefs() =>
-        Pieces.Select(p => p.Entry).Where(id => id != null);
-
-    public override string Validate(GridRegistry grids)
-    {
-        if (grids.ResolveGrid(Grid) == null)
-            return GameAccess.GridMissing;
-        return Permissions.Creative ? null : Permissions.NeedsCreativeTools;
-    }
+    public override string Validate(GridRegistry grids) =>
+        grids.ResolveGrid(Grid) == null ? GameAccess.GridMissing : null;
 
     // The undo of a placement: saves the blocks as they are now into the placement
     // op, so its redo brings them back with what was set on them and put into them
-    // since. Only where the plugin is the server, a client restores by pasting.
+    // since.
     public override void Prepare(GridRegistry grids, List<Op> opposite)
     {
         var build = opposite.OfType<BuildBlocksOp>().FirstOrDefault(o => o.Grid == Grid);
         var grid = grids.ResolveGrid(Grid);
-        if (!WithTopParts || build == null || grid == null || !Sync.IsServer)
+        if (!WithTopParts || build == null || grid == null)
             return;
 
         build.Restore = null;
@@ -107,16 +96,11 @@ public class RazeBlocksOp : Op
         var watch = Pieces.Count == 0 ? null : new SplitWatch(grid);
         if (WithTopParts)
             CloseTopParts(grid);
-        if (Sync.IsServer)
-            EmptyInventories(grid);
+        EmptyInventories(grid);
         grid.RazeBlocks(new List<Vector3I>(Positions), GameAccess.LocalCharacterId, Sync.MyId);
 
         if (watch == null)
-        {
-            if (Sync.IsServer)
-                return null;
-            return () => Positions.All(p => grid.GetCubeBlock(p) == null);
-        }
+            return null;
 
         return () =>
         {

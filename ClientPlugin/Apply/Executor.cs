@@ -4,7 +4,6 @@ using System.Linq;
 using ClientPlugin.History;
 using ClientPlugin.Ops;
 using ClientPlugin.Record;
-using Sandbox.Game.Multiplayer;
 
 namespace ClientPlugin.Apply;
 
@@ -25,7 +24,7 @@ public static class Executor
     }
 
     // What an op has to say about its result, shown with the step's notification:
-    // "restored as construction sites", "restored with changes" and the like
+    // "restored with changes", "2 blocks could not be placed" and the like
     private static readonly List<string> remarks = new List<string>();
 
     public static void Remark(string text)
@@ -67,26 +66,14 @@ public static class Executor
             return;
         }
 
-        if (node.ReferenceLost)
-        {
-            Notify.Show($"{verb} not available: the grids of {node.Label} could not be identified");
-            return;
-        }
-
-        // A replay that ended with an unknown result is not repeated. Its snapshot
-        // puts the grids back the way they were before it, which is the state this
-        // step leads to, since the step goes the other way across the node.
-        var viaSnapshot = node.UnknownResult;
-        if (viaSnapshot && node.Snapshot == null)
+        // A replay that ended with an unknown result is not repeated
+        if (node.UnknownResult)
         {
             Notify.Show($"{verb} not available: the result of {node.Label} is unknown");
             return;
         }
 
-        var ops =
-            viaSnapshot ? new List<Op> { node.Snapshot }
-            : undo ? Enumerable.Reverse(node.Reverse).ToList()
-            : node.Forward;
+        var ops = undo ? Enumerable.Reverse(node.Reverse).ToList() : node.Forward;
         foreach (var op in ops)
         {
             var reason = op.Validate(grids);
@@ -97,22 +84,13 @@ public static class Executor
             }
         }
 
-        // ponytail: the snapshot is taken before every client replay that touches existing
-        // grids, cheap for a ship, costly for a large station
-        Func<Op> saveSnapshot = null;
         var checks = new List<Func<bool>>();
         remarks.Clear();
         try
         {
-            if (!Sync.IsServer && !viaSnapshot)
-                saveSnapshot = GroupSnapshotOp.Prepare(ops, grids);
-
-            if (!viaSnapshot)
-            {
-                var opposite = undo ? node.Forward : node.Reverse;
-                foreach (var op in ops)
-                    op.Prepare(grids, opposite);
-            }
+            var opposite = undo ? node.Forward : node.Reverse;
+            foreach (var op in ops)
+                op.Prepare(grids, opposite);
 
             using (Replay.Begin())
             {
@@ -158,12 +136,8 @@ public static class Executor
                 IsUndo = undo,
                 IsDone = () => checks.All(check => check()),
                 DeadlineUtc = DateTime.UtcNow.AddSeconds(Config.Current.PendingOperationTimeoutS),
-                ViaSnapshot = viaSnapshot,
-                SaveSnapshot = saveSnapshot,
             };
         }
-        else if (viaSnapshot)
-            DropSnapshot(node);
 
         Notify.Show($"{verb}: {node.Label}{TakeRemarks()}");
     }
@@ -178,38 +152,14 @@ public static class Executor
         var verb = finished.IsUndo ? "Undo" : "Redo";
         if (!finished.TimedOut)
         {
-            if (finished.ViaSnapshot)
-                DropSnapshot(node);
-
-            // What the op learned from the server's answer
+            // What the op learned while it completed
             if (remarks.Count != 0)
                 Notify.Show($"{verb}: {node.Label}{TakeRemarks()}");
             Session.UndoSession.Changed();
             return;
         }
         remarks.Clear();
-
-        // A failed snapshot restore keeps its snapshot for the next try
-        if (finished.SaveSnapshot != null)
-        {
-            try
-            {
-                node.Snapshot = finished.SaveSnapshot();
-                node.StoreRefs.AddRange(node.Snapshot.StoreRefs());
-            }
-            catch (Exception e)
-            {
-                Log.Error($"Saving the group snapshot of {node.Label} failed: {e}");
-            }
-        }
         Notify.Show($"{verb} of {node.Label}: result unknown");
-    }
-
-    private static void DropSnapshot(Node node)
-    {
-        foreach (var id in node.Snapshot.StoreRefs())
-            node.StoreRefs.Remove(id);
-        node.Snapshot = null;
     }
 
     // A failure notification of the server; only matters while a replay is pending

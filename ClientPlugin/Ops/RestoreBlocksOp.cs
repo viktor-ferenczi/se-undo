@@ -14,10 +14,9 @@ using VRageMath;
 
 namespace ClientPlugin.Ops;
 
-// Puts removed blocks back. In creative, or with creative tools, and the full state option on:
-// server, one BuildBlockRequestInternal per block with the saved builder and entity
-// id, then the block links; client, one paste into the grid, which keeps settings but
-// assigns new ids. Otherwise the blocks are rebuilt from their definition.
+// Puts removed blocks back. With the full state option on: one BuildBlockRequestInternal
+// per block with the saved builder and entity id, then the block links. Otherwise the
+// blocks are rebuilt from their definition.
 public class RestoreBlocksOp : Op
 {
     public int Grid;
@@ -34,60 +33,29 @@ public class RestoreBlocksOp : Op
 
     public override IEnumerable<int> GridHandles() => new[] { Grid };
 
-    public static bool FullState =>
-        Config.Current.RestoreRemovedBlocksWithFullState && Permissions.Creative;
+    public static bool FullState => Config.Current.RestoreRemovedBlocksWithFullState;
 
-    public override string Validate(GridRegistry grids)
-    {
-        var grid = grids.ResolveGrid(Grid);
-        if (grid == null)
-            return GameAccess.GridMissing;
-        if (FullState)
-            return null;
-
-        var saved = BuilderXml.Read<MyObjectBuilder_CubeGrid>(BlocksXml);
-        return Permissions.HasComponentsFor(
-            grid,
-            BuildBlocksOp.Locations(saved.CubeBlocks.Select(Placement))
-        )
-            ? null
-            : Permissions.MissingComponents;
-    }
+    public override string Validate(GridRegistry grids) =>
+        grids.ResolveGrid(Grid) == null ? GameAccess.GridMissing : null;
 
     public override Func<bool> Apply(GridRegistry grids)
     {
         var grid = grids.ResolveGrid(Grid);
         var saved = BuilderXml.Read<MyObjectBuilder_CubeGrid>(BlocksXml);
-        var mins = saved.CubeBlocks.Select(b => (Vector3I)b.Min).ToList();
-        Func<bool> allBack = () => mins.All(min => grid.BlockAt(min) != null);
 
         if (FullState)
         {
-            if (Sync.IsServer)
-            {
-                SpillWatch.Remove(Spilled);
-                // The build request returns without a word when something is in
-                // the way; found out here, before anything is changed
-                if (saved.CubeBlocks.Any(b => Blocked(grid, b)))
-                    throw new OpRefusedException(Permissions.InTheWay);
+            SpillWatch.Remove(Spilled);
+            // The build request returns without a word when something is in
+            // the way; found out here, before anything is changed
+            if (saved.CubeBlocks.Any(b => Blocked(grid, b)))
+                throw new OpRefusedException(Permissions.InTheWay);
 
-                var missing = RestoreOnServer(grid, saved.CubeBlocks);
-                BlockLinks.Reapply(grid, Links);
-                if (missing != 0)
-                    Executor.Remark($"{Recorder.Plural(missing, "block")} could not be placed");
-                return null;
-            }
-
-            saved.PositionAndOrientation = new MyPositionAndOrientation(grid.WorldMatrix);
-            grid.PasteBlocksToGrid(
-                new List<MyObjectBuilder_CubeGrid> { saved },
-                GameAccess.LocalCharacterId,
-                instantBuild: true
-            );
-            // The pasted blocks get new ids, so what pointed at the old ones is lost
-            if (Links.Count != 0)
-                Executor.Remark(Permissions.LinksLost);
-            return allBack;
+            var missing = RestoreOnServer(grid, saved.CubeBlocks);
+            BlockLinks.Reapply(grid, Links);
+            if (missing != 0)
+                Executor.Remark($"{Recorder.Plural(missing, "block")} could not be placed");
+            return null;
         }
 
         foreach (var group in saved.CubeBlocks.GroupBy(b => (b.ColorMaskHSV, b.SkinSubtypeId)))
@@ -97,9 +65,7 @@ public class RestoreBlocksOp : Op
                 group.Key.ColorMaskHSV,
                 group.Key.SkinSubtypeId
             );
-        if (!Permissions.Creative)
-            Executor.Remark(Permissions.ConstructionSites);
-        return Sync.IsServer ? null : allBack;
+        return null;
     }
 
     // Blocks that connect only through other removed blocks fail until those are

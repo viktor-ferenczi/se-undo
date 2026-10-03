@@ -179,36 +179,6 @@ public sealed class RetentionTests : IDisposable
     }
 
     [Fact]
-    public void ClientHistoriesGoByWorldFolderAfterTheRetentionTime()
-    {
-        var player = Path.Combine(root, "Servers", "1_host", "2_3");
-        var stale = Path.Combine(player, "Old");
-        var fresh = Path.Combine(player, "New");
-        var gone = Path.Combine(root, "Servers", "9_other", "2_3", "Old");
-        foreach (var world in new[] { stale, fresh, gone })
-        {
-            Directory.CreateDirectory(Path.Combine(world, "grids"));
-            File.WriteAllText(Path.Combine(world, "history.xml.gz"), "x");
-            File.WriteAllText(Path.Combine(world, "grids", "index.xml"), "x");
-        }
-        var now = DateTime.UtcNow;
-        foreach (var world in new[] { stale, gone })
-        {
-            foreach (var file in Directory.GetFiles(world, "*", SearchOption.AllDirectories))
-                File.SetLastWriteTimeUtc(file, now.AddDays(-100));
-        }
-        // One recent file keeps a world: the fresh one has an old history too
-        File.SetLastWriteTimeUtc(Path.Combine(fresh, "history.xml.gz"), now.AddDays(-100));
-
-        Assert.Equal(2, ClientRetention.Clean(root, now.AddDays(-90)));
-        Assert.False(Directory.Exists(stale));
-        Assert.True(Directory.Exists(fresh));
-        // Server and player folders that became empty go too
-        Assert.False(Directory.Exists(Path.Combine(root, "Servers", "9_other")));
-        Assert.Equal(0, ClientRetention.Clean(Path.Combine(root, "missing"), now));
-    }
-
-    [Fact]
     public void ABarrierNodeSurvivesTheDocumentRoundTrip()
     {
         var serializer = new UndoDocumentSerializer(new[] { typeof(FakeOp) });

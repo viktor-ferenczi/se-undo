@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Sandbox.Game.Entities;
-using Sandbox.Game.Multiplayer;
 using Sandbox.Game.World;
 
 namespace ClientPlugin.Ops;
@@ -13,7 +12,6 @@ public sealed class SplitWatch
 {
     private readonly MyCubeGrid grid;
     private readonly int openedFrame;
-    private readonly DateTime openedUtc;
     private readonly List<MyCubeGrid> pieces = new List<MyCubeGrid>();
     private bool closed;
 
@@ -21,7 +19,6 @@ public sealed class SplitWatch
     {
         this.grid = grid;
         openedFrame = MySession.Static.GameplayFrameCounter;
-        openedUtc = DateTime.UtcNow;
         grid.OnGridSplit += OnSplit;
     }
 
@@ -38,12 +35,6 @@ public sealed class SplitWatch
         {
             if (grid.MarkedForClose)
                 return true;
-
-            // A client learns about splits from the server, with no signal when none come
-            // ponytail: fixed wait on clients, a server companion could report the splits
-            if (!Sync.IsServer)
-                return DateTime.UtcNow - openedUtc
-                    >= TimeSpan.FromSeconds(Config.Current.PendingOperationTimeoutS);
 
             return MySession.Static.GameplayFrameCounter >= openedFrame + 2
                 && grid.m_disconnectsDirty == MyCubeGrid.MyTestDisconnectsReason.NoReason;

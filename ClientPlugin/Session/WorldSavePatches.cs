@@ -55,16 +55,4 @@ public static class WorldSavePatches
             }
         }
     }
-
-    // The server tells its clients that it started saving; a client has no other
-    // save event. A local server does not invoke its own broadcast.
-    [HarmonyPatch(typeof(MySession), nameof(MySession.OnServerSaving))]
-    private static class ServerSavingPatch
-    {
-        private static void Postfix(bool saveStarted)
-        {
-            if (saveStarted)
-                UndoSession.SaveClientHistory();
-        }
-    }
 }

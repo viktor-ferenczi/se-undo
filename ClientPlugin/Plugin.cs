@@ -10,8 +10,8 @@ using VRage.Plugins;
 
 // Define assembly version when compiled by Pulsar
 #if !LOCAL_BUILD
-[assembly: AssemblyVersion("0.1.0.0")]
-[assembly: AssemblyFileVersion("0.1.0.0")]
+[assembly: AssemblyVersion("0.1.1.0")]
+[assembly: AssemblyFileVersion("0.1.1.0")]
 
 #endif
 
@@ -34,26 +34,8 @@ public class Plugin : IPlugin
 
         Config.Current.PropertyChanged += (_, _) => UndoSession.Configure();
 
-        CleanClientHistories();
-
         var harmony = new Harmony(Name);
         harmony.PatchAll(Assembly.GetExecutingAssembly());
-    }
-
-    // Histories of server sessions nobody came back to, design section 8
-    private static void CleanClientHistories()
-    {
-        try
-        {
-            var cutoff = DateTime.UtcNow.AddDays(-Config.Current.ClientHistoryRetentionDays);
-            var deleted = ClientRetention.Clean(UndoSession.StorageRoot, cutoff);
-            if (deleted != 0)
-                Log.Info($"Removed {deleted} client history folders past the retention time");
-        }
-        catch (Exception e)
-        {
-            Log.Error($"Cleaning the client histories failed: {e}");
-        }
     }
 
     public void Dispose()

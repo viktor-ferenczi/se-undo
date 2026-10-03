@@ -59,7 +59,7 @@ public static class InputPatches
             var document = UndoSession.Document;
             var config = Config.Current;
             if (
-                document == null
+                !UndoSession.Active
                 || MyGuiScreenGamePlay.ActiveGameplayScreen != null
                 || !config.EnableBuildContext
             )
@@ -141,7 +141,7 @@ public static class InputPatches
         {
             var config = Config.Current;
             var gridHistory =
-                UndoSession.Document != null
+                UndoSession.Active
                 && config.EnableBuildContext
                 && MyScreenManager.GetScreenWithFocus() is MyGuiScreenGamePlay
                 && MyGuiScreenGamePlay.ActiveGameplayScreen == null
@@ -161,7 +161,7 @@ public static class InputPatches
             // or also from a single line box when the separate text undo option is off.
             var document = UndoSession.Document;
             if (
-                document == null
+                !UndoSession.Active
                 || !Config.Current.EnableTerminalContext
                 || __instance.FocusedControl is MyGuiControlTextbox
                     && !TextHistories.HandedToTerminal

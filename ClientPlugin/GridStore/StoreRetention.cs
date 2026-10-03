@@ -8,28 +8,17 @@ namespace ClientPlugin.GridStore;
 // Byte budgets of the grid store, design section 9. Knows nothing about the game.
 public static class StoreRetention
 {
-    // The grids folders of every world under the storage root:
-    // Worlds/<world>/grids and Servers/<server>/<player>/<world>/grids
+    // The grids folders of every world under the storage root: Worlds/<world>/grids
     public static List<string> GridFolders(string storageRoot)
     {
-        var folders = new List<string>();
-        Collect(Path.Combine(storageRoot, "Worlds"), 1, folders);
-        Collect(Path.Combine(storageRoot, "Servers"), 3, folders);
-        return folders;
-    }
-
-    private static void Collect(string folder, int depth, List<string> found)
-    {
-        if (!Directory.Exists(folder))
-            return;
-
-        foreach (var child in Directory.GetDirectories(folder))
-        {
-            if (depth > 1)
-                Collect(child, depth - 1, found);
-            else if (Directory.Exists(Path.Combine(child, "grids")))
-                found.Add(Path.Combine(child, "grids"));
-        }
+        var worlds = Path.Combine(storageRoot, "Worlds");
+        if (!Directory.Exists(worlds))
+            return new List<string>();
+        return Directory
+            .GetDirectories(worlds)
+            .Select(world => Path.Combine(world, "grids"))
+            .Where(Directory.Exists)
+            .ToList();
     }
 
     // Entry bytes on disk, without opening any index

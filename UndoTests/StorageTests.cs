@@ -40,8 +40,6 @@ public class StorageTests
             new DateTime(2026, 9, 27, 12, 0, 0, DateTimeKind.Utc)
         );
         node.UnknownResult = true;
-        node.ReferenceLost = true;
-        node.Snapshot = new FakeSnapshotOp { Grid = handle, Entry = "0123abcd" };
         node.StoreRefs.Add("0123abcd");
         document.Build.MarkUndone(node);
         return document;
@@ -68,8 +66,6 @@ public class StorageTests
         );
         Assert.Equal(123456789012345678, loaded.Grids.EntityIdOf(snapshot.Grid));
         Assert.True(node.UnknownResult);
-        Assert.True(node.ReferenceLost);
-        Assert.Equal("0123abcd", Assert.IsType<FakeSnapshotOp>(node.Snapshot).Entry);
         Assert.Equal(new[] { "0123abcd" }, node.StoreRefs);
     }
 
@@ -102,7 +98,7 @@ public class StorageTests
         Assert.Contains("\"count\":1", json);
         Assert.Contains("\"current\":0", json);
         Assert.Contains("\"label\":\"removed 1 block\"", json);
-        Assert.Contains("\"referenceLost\":true,\"storeRefs\":[\"0123abcd\"]", json);
+        Assert.Contains("\"unknown\":true,\"storeRefs\":[\"0123abcd\"]", json);
         Assert.Contains("\"lastMessage\":\"Undo: removed \\\"1\\\" block\\u000a\"", json);
         Assert.Contains("\"documentBytes\":42", json);
         Assert.Equal(Encoding.UTF8.GetByteCount(json), Encoding.ASCII.GetByteCount(json));

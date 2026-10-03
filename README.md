@@ -27,12 +27,16 @@ this plugin is enabled those move to Ctrl-Shift-Z and Ctrl-Shift-Y. In gameplay 
 is still relative dampeners while there is nothing to undo. All four bindings,
 the history limits and the storage locations are in the plugin settings.
 
-In survival, undo and redo only do what you could do by hand: place blocks as
-construction sites from your inventory, paint, change terminal settings, names and
-programs. Removing blocks, restoring them complete, pasting and deleting grids need
-creative tools. On a dedicated server the plugin works client side only; a block or
-grid it restores there gets new ids, so toolbar slots and groups that pointed at it
-from outside have to be set again.
+Where it works:
+
+- Offline games in creative, or in survival with creative tools enabled.
+- Friends multiplayer if you are the host, with the same game mode rules.
+- **Not** in multiplayer hosted on a dedicated server, nor when you join a friend's
+  game. A client could only do very little there, and even that would be cheaty.
+
+Where it is off, the plugin records nothing and takes no keys: Ctrl-Z, Ctrl-Y and
+Ctrl-H do what they do without it. In survival the history waits until creative
+tools are back on.
 
 Design: [Docs/DESIGN.md](Docs/DESIGN.md). It records what the plugin hooks, how undo is
 replayed through the game's own requests so multiplayer stays in sync, and what is

@@ -5,14 +5,12 @@ using ClientPlugin.Apply;
 using ClientPlugin.History;
 using Sandbox.Definitions;
 using Sandbox.Game.Entities;
-using Sandbox.Game.Multiplayer;
 using VRage.Utils;
 using VRageMath;
 
 namespace ClientPlugin.Ops;
 
-// Places blocks through the cube builder's own request. In survival without
-// creative tools they come back as construction sites, which a player could do by hand.
+// Places blocks through the cube builder's own request
 public class BuildBlocksOp : Op
 {
     public int Grid;
@@ -33,8 +31,8 @@ public class BuildBlocksOp : Op
     public override IEnumerable<string> StoreRefs() =>
         Snapshot == null ? Enumerable.Empty<string>() : Snapshot.StoreRefs();
 
-    // The saved state needs what a full restore needs; without it the blocks are
-    // built from their definition, which a survival player can do by hand
+    // The saved state, unless the full state option is off; then the blocks are
+    // built from their definition
     private Op Saved =>
         !RestoreBlocksOp.FullState ? null
         : Snapshot != null ? Snapshot
@@ -45,11 +43,7 @@ public class BuildBlocksOp : Op
         var grid = grids.ResolveGrid(Grid);
         if (grid == null)
             return GameAccess.GridMissing;
-        if (Saved != null)
-            return Saved.Validate(grids);
-        return Permissions.HasComponentsFor(grid, Locations(Blocks))
-            ? null
-            : Permissions.MissingComponents;
+        return Saved?.Validate(grids);
     }
 
     public override Func<bool> Apply(GridRegistry grids)
@@ -58,20 +52,15 @@ public class BuildBlocksOp : Op
             return Saved.Apply(grids);
 
         var grid = grids.ResolveGrid(Grid);
-        if (Sync.IsServer && Blocks.Any(b => Blocked(grid, b)))
+        if (Blocks.Any(b => Blocked(grid, b)))
             throw new OpRefusedException(Permissions.InTheWay);
 
+        // The local server builds inside the request
         Build(grid, Blocks, ColorHsv, Skin);
-
-        if (Sync.IsServer)
-        {
-            // A local server builds inside the request
-            var missing = Blocks.Count(b => grid.BlockAt(b.Min) == null);
-            if (missing != 0)
-                Executor.Remark($"{Record.Recorder.Plural(missing, "block")} could not be placed");
-            return null;
-        }
-        return () => Blocks.All(b => grid.BlockAt(b.Min) != null);
+        var missing = Blocks.Count(b => grid.BlockAt(b.Min) == null);
+        if (missing != 0)
+            Executor.Remark($"{Record.Recorder.Plural(missing, "block")} could not be placed");
+        return null;
     }
 
     // The build request returns without a word when something is in the way
@@ -93,8 +82,7 @@ public class BuildBlocksOp : Op
             blocks.Select(b => b.ToLocation(GameAccess.LocalIdentityId))
         );
 
-    // The cube builder's request. Without creative tools in survival the server
-    // builds construction sites and takes the components from the character.
+    // The cube builder's request
     public static void Build(
         MyCubeGrid grid,
         IEnumerable<BlockPlacement> blocks,
