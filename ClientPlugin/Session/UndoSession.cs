@@ -48,6 +48,11 @@ public class UndoSession : MySessionComponentBase
     // Opened on first use, when the session knows its world and server
     public static GridStoreFolder Store => store ??= new GridStoreFolder(StoredGroups.Folder());
 
+    // Undo only works where the plugin is the host, and in survival only with creative
+    // tools on, design section 2. The tools can be switched any time, so this is asked
+    // live; work already under way still finishes.
+    public static bool Active => Document != null && Sync.IsServer && Permissions.Creative;
+
     public static string StorageRoot
     {
         get
@@ -78,8 +83,15 @@ public class UndoSession : MySessionComponentBase
     // knows its save folder
     public override void BeforeStart()
     {
-        TerminalContextPatches.PatchControls();
         Log.Info($"Session mode: {Permissions.Mode}");
+        if (!Sync.IsServer)
+        {
+            Log.Info("Not the host, undo is off in this world");
+            Clear();
+            return;
+        }
+
+        TerminalContextPatches.PatchControls();
         waitingForIdentity = !Sync.IsServer;
         if (!waitingForIdentity)
             LoadDocument();

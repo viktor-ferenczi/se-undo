@@ -74,10 +74,23 @@ Paths are relative to `Sandbox.Game/Sandbox/Game/` unless another assembly is na
 
 | Mode | Detection | Policy |
 |---|---|---|
-| Offline | `MyMultiplayer.Static == null` | Full functionality, subject to creative tools in survival |
+| Offline | `MyMultiplayer.Static == null` | Full functionality, in survival only while creative tools are on |
 | Hosting a lobby (friends) | `Sync.IsServer && MyMultiplayer.Static is MyMultiplayerLobby` | Same as offline. Replays go through the request methods or the server entry points of section 1, both of which the game replicates to the joined clients |
-| Client of a lobby | `MyMultiplayer.Static is MyMultiplayerLobbyClient` | Same as DS client |
-| Client of a dedicated server | `MyMultiplayer.Static is MyMultiplayerClientBase` and not a lobby client | Client only. History is stored locally, see section 8 |
+| Client of a lobby | `MyMultiplayer.Static is MyMultiplayerLobbyClient` | Off |
+| Client of a dedicated server | `MyMultiplayer.Static is MyMultiplayerClientBase` and not a lobby client | Off |
+
+Since 0.1.1 the plugin is off wherever it is not the host, and in survival while
+creative tools are off. On a client of a dedicated server or of someone else's lobby
+it could do very little, and what it could do would be cheaty. `UndoSession.Active`
+is that check; the recording patches, the key handling, the grid history dialog and
+the text boxes of a world all ask it.
+On a client the session never loads a history (`BeforeStart` logs "Not the host" and
+stops), so the client side storage of section 8 and the client rows of the tables
+below are unused for now. Creative tools can be switched any time: with them off
+nothing is recorded and the keys go to the game, while work already under way (a
+stroke being coalesced, a removal settling, a pending replay) still finishes. The
+history stays and works again once the tools are back on. What the player changed in
+between is not recorded, and an undo that no longer fits is refused as usual.
 
 `Permissions.Mode` (`SessionMode`) is this table; the status file and the log name the
 mode at session start. The ops themselves only ask `Sync.IsServer`: every server entry
@@ -522,8 +535,8 @@ A world copied with Save As has the history but not the grid store, which is key
 the save folder name (below): in the copy, nodes that need a stored grid are refused
 until the player continues in the original. See R8.
 
-Client of a server (dedicated or someone else's lobby): no save folder, and no save
-event. The document goes into the plugin's own storage folder, with one sub-folder per
+Client of a server (dedicated or someone else's lobby): unused since 0.1.1, the plugin
+is off there (section 2). No save folder, and no save event. The document goes into the plugin's own storage folder, with one sub-folder per
 server and per player character:
 
 ```
@@ -872,8 +885,8 @@ Coverage, one test per row, each followed by redo where it applies:
 | Backup restore | save, build more, save again; delete the world folder's files and copy the older backup's files in their place, the way the game does; reload | nodes and cursor of the older save, its block there and the later one not, undo works |
 | Save As | `POST /v1/game/save` with a name; then from the title menu: Load Game, Save As | both new world folders have the file |
 | Backup restore by the game | title menu, Load Game, Backups, a backup whose history differs from the current one, Load | the world folder has that backup's file, the loaded history matches it |
-| Permissions | survival copy of the world, the character out of the cryo chamber: build a block, Ctrl-Z; `settings/admin-flag` creative tools on, Ctrl-Z. Raze a light with the tools on, switch them off, Ctrl-Z without and with components (`character/inventory/add`), Ctrl-Y. Paste with the tools on, Ctrl-Z and Ctrl-Y with them off | "needs creative tools" and the block stays, then it goes; "missing components", then "restored as construction sites", the block below full build level with a new name; the redo refused until the tools are back, then the undo restores the light under its old id; the pasted grid stays, and after its undo "copy and paste is disabled" |
-| Dedicated server client | Magnetar DS with DirectTransport and one client (`notes/game-test-instance-modes`, mode A), survival world, the client its administrator with creative tools: Ctrl-C on a small station, Ctrl-V, click in the open air, Ctrl-Z, Ctrl-Y, twice; raze the light the cockpit toolbar, the turret controller and the block group point at, Ctrl-Z; a property and a block name set from outside, undone in the terminal. Then the server restarts without administrators and the same player joins again: Ctrl-Z, Ctrl-Y, a paint and its undo | the paste recorded by `OnEntityAdd` matching, the redone grid under a new id and closed by the next undo; "restored, some block links lost", the light back by name with a new id, and in the world the server saved: the toolbar slot and the tool list still on the old id, the group without the light; `Servers/<server>/<player>/<world>/history.xml.gz` with the nodes and the grid store next to it; after the rejoin the same nodes and cursor, both steps refused with "needs creative tools", the client still connected, the paint undone |
+| Permissions | survival copy of the world, the character out of the cryo chamber: build a block and Ctrl-Z with creative tools off; with `settings/admin-flag` creative tools on raze a light, switch them off, Ctrl-Z, switch them on, Ctrl-Z. Paste with the tools on, Ctrl-Z with them off, then on | the build not recorded and no reaction to Ctrl-Z; the light stays gone while the tools are off, then comes back under its old id; the pasted grid stays while the tools are off, then goes |
+| Dedicated server client | Magnetar DS with DirectTransport and one client (`notes/game-test-instance-modes`, mode A), survival world, the client its administrator with creative tools: raze a light, Ctrl-Z | "Not the host, undo is off in this world" in the client log, the light stays gone, nothing written under the plugin's storage folder |
 
 Implemented so far: the build, raze, referenced raze, split, paint, limits and tree
 option rows, plus two rows for the displaced vanilla keys and the terminal context

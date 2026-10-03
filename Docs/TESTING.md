@@ -55,9 +55,8 @@ Magnetar config folder once and writes everything else on each run:
 | Client Remote port | 24177 |
 
 `tests/ds/ds_rig.py` has the paths; each can be changed with an environment variable
-named there. The suite starts a fresh server with the client as its administrator,
-runs the administrator tests, then restarts the server on its saved world without
-administrators and joins again for the regular player tests.
+named there. The suite starts a fresh server with the client as its administrator
+and checks that the plugin stays off on the client, creative tools or not.
 
 To bring the pair up by hand and drive the client through its Remote API:
 

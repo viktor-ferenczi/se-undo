@@ -66,14 +66,13 @@ CLIENT = rig.Client(
 # From the block of ids this machine uses for test clients
 CLIENT_ID = 76561199500000131
 CLIENT_NAME = "UndoTester"
+LOG = CLIENT.appdata / "SpaceEngineers.log"
 CLIENT_PLUGINS = ("remote", "AC284074-A676-4930-B47A-F30450988608", "direct-transport")
 
 UNDO_CONFIG = {
     "DebugStatusFile": "true",
     "RecordTerminalChangesOutsideTerminal": "true",
     "LogLevel": "Debug",
-    # The client history is written this soon after a change
-    "ClientAutosaveIntervalS": "5",
 }
 
 # A small station in the open air beside the test station, to copy with Ctrl-C
@@ -249,7 +248,7 @@ def start_client(timeout: float = 420.0):
     profile = CLIENT.pulsar / "Legacy" / "Profiles" / "Current.xml"
     profile.write_text(_profile(CLIENT_PLUGINS), encoding="utf-8")
 
-    CLIENT.status_file.unlink(missing_ok=True)
+    LOG.unlink(missing_ok=True)
     rig.launch(
         CLIENT,
         [
@@ -268,10 +267,16 @@ def start_client(timeout: float = 420.0):
     return api
 
 
+def joined() -> bool:
+    """The plugin logs the session mode when the session starts"""
+    return LOG.exists() and "Undo: Info: Session mode:" in LOG.read_text(
+        errors="replace"
+    )
+
+
 def wait_joined(api, timeout: float = 420.0) -> None:
-    """The plugin writes its status file when the session starts"""
     deadline = time.monotonic() + timeout
-    while not CLIENT.status_file.exists():
+    while not joined():
         if rig.running_pid(CLIENT) is None:
             raise RuntimeError(f"The client exited, see {CLIENT.launch_log}")
         if time.monotonic() > deadline:

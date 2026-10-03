@@ -2,8 +2,10 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Text;
+using ClientPlugin.Session;
 using HarmonyLib;
 using Sandbox.Game.Gui;
+using Sandbox.Game.World;
 using Sandbox.Graphics.GUI;
 using VRage.Input;
 
@@ -66,8 +68,14 @@ public static class TextHistories
     {
         private static bool Prefix(MyGuiControlTextbox __instance, ref MyGuiControlBase __result)
         {
+            // In a world the text boxes follow the plugin being on or off there
             var config = Config.Current;
-            if (!config.EnableTextContext || !__instance.HasFocus || HandedToTerminal)
+            if (
+                !config.EnableTextContext
+                || !__instance.HasFocus
+                || HandedToTerminal
+                || MySession.Static != null && !UndoSession.Active
+            )
                 return true;
 
             // The text before the first edit; also a text that changed unseen

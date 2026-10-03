@@ -57,13 +57,17 @@ public sealed class GridHistoryScreen : MyGuiScreenBase
         if (current != null)
             return;
 
-        if (UndoSession.Document == null)
+        if (!UndoSession.Active)
         {
+            var message =
+                MySession.Static == null
+                    ? "The grid history belongs to a world. Load one first."
+                    : "Undo is off in this world. It needs the plugin on the host, and creative tools in survival.";
             MyGuiSandbox.AddScreen(
                 MyGuiSandbox.CreateMessageBox(
                     MyMessageBoxStyleEnum.Info,
                     MyMessageBoxButtonsType.OK,
-                    new StringBuilder("The grid history belongs to a world. Load one first."),
+                    new StringBuilder(message),
                     new StringBuilder(Plugin.Name)
                 )
             );

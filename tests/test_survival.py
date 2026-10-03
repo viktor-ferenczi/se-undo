@@ -1,9 +1,9 @@
 """Permission row of design section 13, in a survival copy of the test world.
 Sorted after test_world_save.py, since it loads a world of its own.
 
-Offline the game counts everyone as having creative rights, so what keeps undo from
-removing or restoring blocks for free there is the plugin's own check for creative
-tools.
+In survival the plugin is on only while creative tools are (design section 2).
+Without them it records nothing and leaves the keys to the game. The tools can be
+switched any time, and the history waits for them to come back.
 """
 
 from __future__ import annotations
@@ -12,8 +12,6 @@ import pytest
 
 import rig
 from harness import Game, wait_until
-
-NEEDS_TOOLS = "Undo not available: needs creative tools"
 
 
 @pytest.fixture(scope="module")
@@ -41,29 +39,23 @@ def creative_tools(game, on: bool) -> None:
     assert game.api.set_admin_flag("creativeTools", on)["creativeToolsEnabled"] is on
 
 
-def test_raze_undo_needs_creative_tools(survival):
-    """Undoing a build removes the block, which a survival player cannot do for free"""
+def test_off_without_creative_tools(survival):
+    """A block built by hand is not recorded, and the undo key is the game's"""
     game, cell = survival, rig.BUILD_CELL
-    last = game.last_node_id()
 
-    assert game.api.character_build_block(game.station, cell)["sent"]
-    wait_until(lambda: game.exists(cell), "the block")
-    game.wait_recorded(last, "placed 1 block")
-    # Without creative tools the game builds a construction site
-    assert game.build_ratio(cell) < 1
+    def build():
+        assert game.api.character_build_block(game.station, cell)["sent"]
+        wait_until(lambda: game.exists(cell), "the block")
 
-    assert game.undo(expect=None) == NEEDS_TOOLS
+    game.quiet(build)
+    assert game.build()["count"] == 0
+    game.quiet(lambda: game.api.key(*game.undo_key))
     assert game.exists(cell)
-    assert game.build()["current"] != 0
-
-    creative_tools(game, True)
-    assert game.undo() == "Undo: placed 1 block"
-    wait_until(lambda: not game.exists(cell), "the block to go")
 
 
-def test_restore_without_creative_tools_places_construction_sites(survival):
-    """Undoing a removal builds the block again the way the player could: as a
-    construction site paid from the inventory, with new ids and default settings"""
+def test_the_history_waits_for_creative_tools(survival):
+    """A removal recorded with the tools on is undone only once they are back on,
+    and then with its full state"""
     game, cell = survival, rig.SECOND_LIGHT
     before = game.block(cell)
     last = game.last_node_id()
@@ -73,27 +65,12 @@ def test_restore_without_creative_tools_places_construction_sites(survival):
     wait_until(lambda: not game.exists(cell), "the removal")
     game.wait_recorded(last, "removed 1 block")
 
+    # With something to undo, the keys are still the game's while the tools are off
     creative_tools(game, False)
-    assert game.undo(expect=None) == "Undo not available: missing components"
+    game.quiet(game.vanilla_keys, wait=0)
     assert not game.exists(cell)
 
-    game.api.add_inventory_item("MyObjectBuilder_Component", "Construction", 5)
-    message = game.undo()
-    assert message == "Undo: removed 1 block (restored as construction sites)"
-    wait_until(lambda: game.exists(cell), "the construction site")
-    after = game.block(cell)
-    assert after["definition"] == before["definition"]
-    assert game.build_ratio(cell) < 1
-    assert after["customName"] != before["customName"]
-
-    # Removing it again is a raze: refused, then allowed with the tools
-    assert game.redo(expect=None) == "Redo not available: needs creative tools"
-    assert game.exists(cell)
     creative_tools(game, True)
-    game.redo()
-    wait_until(lambda: not game.exists(cell), "the removal again")
-
-    # With the tools the block comes back as itself
     assert game.undo() == "Undo: removed 1 block"
     wait_until(lambda: game.exists(cell), "the restore")
     restored = game.block(cell)
@@ -102,9 +79,8 @@ def test_restore_without_creative_tools_places_construction_sites(survival):
     creative_tools(game, False)
 
 
-def test_paste_and_close_need_creative_tools(survival):
-    """A grid pasted with the tools on stays when they are off: closing it and
-    pasting it again are both refused"""
+def test_paste_and_close_wait_for_creative_tools(survival):
+    """A grid pasted with the tools on stays while they are off"""
     game = survival
     name = "Undo Survival Paste"
     position = rig.station_point((8, 12, 8))
@@ -117,7 +93,7 @@ def test_paste_and_close_need_creative_tools(survival):
     game.wait_recorded(last, f"pasted {name}")
 
     creative_tools(game, False)
-    assert game.undo(expect=None) == NEEDS_TOOLS
+    game.quiet(lambda: game.api.key(*game.undo_key))
     assert any(g.get("name") == name for g in game.grids())
 
     creative_tools(game, True)
@@ -125,7 +101,4 @@ def test_paste_and_close_need_creative_tools(survival):
     wait_until(
         lambda: all(g.get("name") != name for g in game.grids()), "the grid to go"
     )
-
     creative_tools(game, False)
-    assert game.redo(expect=None) == "Redo not available: copy and paste is disabled"
-    assert all(g.get("name") != name for g in game.grids())

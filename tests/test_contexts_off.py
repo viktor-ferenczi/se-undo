@@ -51,22 +51,7 @@ def test_build_context_off(game):
 
 def test_vanilla_keys_are_back(game):
     """Ctrl-Z is relative dampeners again, and Ctrl-H does not open the grid history"""
-    api = game.api
-
-    def dampeners():
-        return api.get_character()["dampeners"]
-
-    if dampeners():
-        api.key("Z")
-        wait_until(lambda: not dampeners(), "dampeners off")
-    api.key("Z", ["LeftControl"])
-    wait_until(dampeners, "relative dampeners on Ctrl-Z")
-
-    api.key("H", ["LeftControl"])
-    time.sleep(1)
-    assert game.screen("GridHistoryScreen") is None
-    # Vanilla toggles the render profiler on it; once more puts it back
-    api.key("H", ["LeftControl"])
+    game.vanilla_keys()
 
 
 def test_terminal_context_off(game):

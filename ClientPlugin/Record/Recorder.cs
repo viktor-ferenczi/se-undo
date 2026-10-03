@@ -31,12 +31,12 @@ public static class Recorder
         new Dictionary<MyCubeGrid, DateTime>();
 
     public static bool CanRecord =>
-        UndoSession.Document != null && !Replay.Active && Config.Current.EnableBuildContext;
+        UndoSession.Active && !Replay.Active && Config.Current.EnableBuildContext;
 
     // Terminal changes are recorded while the terminal is open, or always with the
     // option on. Main thread only: mods may set properties from worker threads.
     public static bool CanRecordTerminal =>
-        UndoSession.Document != null
+        UndoSession.Active
         && !Replay.Active
         && Config.Current.EnableTerminalContext
         && (Config.Current.RecordTerminalChangesOutsideTerminal || MyGuiScreenTerminal.IsOpen)

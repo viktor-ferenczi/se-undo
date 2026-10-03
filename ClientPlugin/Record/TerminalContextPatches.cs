@@ -266,7 +266,7 @@ public static class TerminalContextPatches
         // toolbar when someone sits down.
         private static bool CanRecordToolbar(MyToolbar toolbar) =>
             toolbar.Owner is MyTerminalBlock
-            && UndoSession.Document != null
+            && UndoSession.Active
             && !Replay.Active
             && Config.Current.EnableTerminalContext
             && MyGuiScreenToolbarConfigBase.Static != null

@@ -81,7 +81,7 @@ about 27 minutes.
 | `test_contexts_off.py` | all contexts disabled, vanilla keys back |
 | `test_world_save.py` | save, backups, Save As, restore through the load menu |
 | `test_persistence_edge.py` | both histories after a load, redo from the grid store, a corrupt or foreign history file, another world, a grid missing from the save |
-| `test_survival.py` | what needs creative tools |
+| `test_survival.py` | survival: off without creative tools, the history waits for them |
 
 A file sets the plugin options of its client with a module level `UNDO_CONFIG`
 dict, merged over `rig.UNDO_CONFIG`; `None` puts an option back to its default.
