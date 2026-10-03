@@ -6,7 +6,6 @@ using ClientPlugin.Ops;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Blocks;
 using Sandbox.Game.Entities.Cube;
-using Sandbox.Game.Multiplayer;
 using VRage.Game;
 using VRageMath;
 
@@ -100,11 +99,6 @@ public sealed class RazeCapture : ICapture
             {
                 Grid = Recorder.Handle(piece),
                 Key = piece.CubeBlocks.First().Min,
-                Entry = Sync.IsServer
-                    ? null
-                    : StoredGroups
-                        .SaveNow(StoredGroups.Capture(new[] { piece }), StoreReason.Split)
-                        .Id,
             })
             .ToList();
 

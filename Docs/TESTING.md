@@ -8,7 +8,7 @@ headless.
 |---|---|---|
 | Unit tests: history, storage, grid store, text history | `dotnet test UndoTests` | seconds |
 | In game suite, offline clients | `uv run python tests/run_pieces.py` | about 6 minutes |
-| Dedicated server suite, server plus one client | `uv run pytest tests/ds` | about 4 minutes |
+| Dedicated server suite, server plus one client | `uv run pytest tests/ds` | about 3 minutes |
 
 The game suites use different folders and ports and can run at the same time. A
 client in a world takes about 5.5 GB of RAM, the server about 3 GB.
@@ -56,7 +56,7 @@ Magnetar config folder once and writes everything else on each run:
 
 `tests/ds/ds_rig.py` has the paths; each can be changed with an environment variable
 named there. The suite starts a fresh server with the client as its administrator
-and checks that the plugin stays off on the client, creative tools or not.
+and checks that the plugin stays off on the client, even with creative tools on.
 
 To bring the pair up by hand and drive the client through its Remote API:
 

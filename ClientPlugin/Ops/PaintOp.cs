@@ -4,7 +4,6 @@ using System.Linq;
 using ClientPlugin.Apply;
 using ClientPlugin.History;
 using Sandbox.Game.Entities;
-using Sandbox.Game.Multiplayer;
 using VRage.Utils;
 using VRageMath;
 
@@ -46,18 +45,7 @@ public class PaintOp : Op
             foreach (var (min, max) in RunsAlongX(group.Select(b => b.Min)))
                 grid.SkinBlocks(min, max, color, skin, playSound: false);
         }
-
-        if (Sync.IsServer)
-            return null;
-        return () => Blocks.All(b => IsPainted(grid, b));
-    }
-
-    private bool IsPainted(MyCubeGrid grid, BlockPaint paint)
-    {
-        var block = grid.GetCubeBlock(paint.Min);
-        return block == null
-            || (!ApplyColor || block.ColorMaskHSV == paint.ColorHsv)
-                && (!ApplySkin || block.SkinSubtypeId.String == paint.Skin);
+        return null;
     }
 
     // Only block min corners are merged, so a run never touches a block outside the group

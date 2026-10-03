@@ -13,7 +13,6 @@ public enum StoreReason
     Deleted,
     Pasted,
     Placed,
-    Split,
     Snapshot,
 }
 

@@ -4,7 +4,6 @@ using System.Linq;
 using ClientPlugin.GridStore;
 using ClientPlugin.Ops;
 using Sandbox.Game.Entities;
-using Sandbox.Game.Multiplayer;
 using VRage.Game;
 
 namespace ClientPlugin.Record;
@@ -21,7 +20,7 @@ public interface ICapture
     void Abort();
 }
 
-// A paste request on a local server. Its OnPasteFinished callback hands over the
+// A paste request. Its OnPasteFinished callback hands over the
 // grids exactly as the paste created them, on the main thread.
 public sealed class PasteCapture : ICapture
 {
@@ -46,53 +45,19 @@ public sealed class PasteCapture : ICapture
     {
         var grids = pasted?.Where(g => !g.MarkedForClose).ToList();
         if (grids != null && grids.Count != 0)
-            Recorder.RecordCreated(grids, StoreReason.Pasted, "pasted {0}", referenceLost: false);
-    }
-
-    public void Abort() { }
-}
-
-// Grids a client asked for, recognized when they arrive, design section 6
-public sealed class MatchCapture : ICapture
-{
-    private readonly PasteMatch match;
-    private readonly StoreReason reason;
-    private readonly string label;
-
-    public MatchCapture(PasteMatch match, StoreReason reason, string label)
-    {
-        this.match = match;
-        this.reason = reason;
-        this.label = label;
-    }
-
-    public bool Settled => match.Done;
-
-    // Nothing arrived: the paste most likely failed on the server, nothing to undo.
-    // Some arrived: recorded, but undo is refused, it cannot remove the rest.
-    public void Finish()
-    {
-        var grids = match.Grids.Where(g => g != null && !g.MarkedForClose).ToList();
-        if (grids.Count == 0)
-        {
-            Log.Info("No grid arrived for a paste request, it is not recorded");
-            return;
-        }
-        Recorder.RecordCreated(grids, reason, label, referenceLost: !match.AllMatched);
+            Recorder.RecordCreated(grids, StoreReason.Pasted, "pasted {0}");
     }
 
     public void Abort() { }
 }
 
 // Grids closed by the player's close request, snapshot before the request the way
-// the clipboard copies them. Only grids that really closed are recorded.
+// the clipboard copies them. The local server closes them inside the request; only
+// grids that really closed are recorded.
 public sealed class DeleteCapture : ICapture
 {
     private readonly List<MyCubeGrid> grids;
     private readonly List<MyObjectBuilder_CubeGrid> builders;
-    private readonly DateTime deadlineUtc = DateTime.UtcNow.AddSeconds(
-        Config.Current.PendingOperationTimeoutS
-    );
 
     public DeleteCapture(List<MyCubeGrid> grids)
     {
@@ -100,9 +65,7 @@ public sealed class DeleteCapture : ICapture
         builders = StoredGroups.Capture(grids);
     }
 
-    // A local server closes the grids inside the request
-    public bool Settled =>
-        Sync.IsServer || grids.All(g => g.MarkedForClose) || DateTime.UtcNow >= deadlineUtc;
+    public bool Settled => true;
 
     public void Finish()
     {

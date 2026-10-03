@@ -48,8 +48,6 @@ public class Config : INotifyPropertyChanged
     private int paintStrokeTimeoutMs = 300;
     private int textCoalescingWindowMs = 500;
     private int pendingOperationTimeoutS = 5;
-    private int pasteMatchWindowS = 5;
-    private float pasteMatchPositionToleranceM = 0.5f;
     private GridLinkTypeEnum groupLinkTypeForSnapshots = GridLinkTypeEnum.Logical;
 
     private int gridStoreBudgetPerWorldMb = 512;
@@ -60,10 +58,7 @@ public class Config : INotifyPropertyChanged
     private string gridHistorySortKeys = "-Time";
 
     private bool persistInTheWorldSave = true;
-    private bool persistOnMultiplayerClient = true;
     private string clientStorageRoot = "";
-    private int clientAutosaveIntervalS = 60;
-    private int clientHistoryRetentionDays = 90;
 
     private bool notifications = true;
     private int notificationDurationMs = 2000;
@@ -202,7 +197,7 @@ public class Config : INotifyPropertyChanged
     }
 
     [Checkbox(
-        description: "Restore removed blocks with their settings in creative or with creative tools, "
+        description: "Restore removed blocks with their settings, "
             + "off always rebuilds them from the definition"
     )]
     public bool RestoreRemovedBlocksWithFullState
@@ -250,34 +245,8 @@ public class Config : INotifyPropertyChanged
         set => SetField(ref pendingOperationTimeoutS, value);
     }
 
-    [Slider(
-        1f,
-        60f,
-        1f,
-        SliderAttribute.SliderType.Integer,
-        description: "How long new grids are matched to a paste request on a multiplayer client"
-    )]
-    public int PasteMatchWindowS
-    {
-        get => pasteMatchWindowS;
-        set => SetField(ref pasteMatchWindowS, value);
-    }
-
-    [Slider(
-        0.1f,
-        10f,
-        0.1f,
-        SliderAttribute.SliderType.Float,
-        description: "Position tolerance of that match"
-    )]
-    public float PasteMatchPositionToleranceM
-    {
-        get => pasteMatchPositionToleranceM;
-        set => SetField(ref pasteMatchPositionToleranceM, value);
-    }
-
     [Dropdown(
-        description: "Grid connections followed by the backup taken before an undo or redo on a server"
+        description: "Grid connections followed by the group backup taken before a removal takes a mechanical connection apart"
     )]
     public GridLinkTypeEnum GroupLinkTypeForSnapshots
     {
@@ -360,46 +329,11 @@ public class Config : INotifyPropertyChanged
         set => SetField(ref persistInTheWorldSave, value);
     }
 
-    [Checkbox(description: "Keep the history of server sessions in the client storage folder")]
-    public bool PersistOnMultiplayerClient
-    {
-        get => persistOnMultiplayerClient;
-        set => SetField(ref persistOnMultiplayerClient, value);
-    }
-
-    [Textbox(
-        description: "Folder of the grid store and client histories, empty means <game user data>/Undo"
-    )]
+    [Textbox(description: "Folder of the grid store, empty means <game user data>/Undo")]
     public string ClientStorageRoot
     {
         get => clientStorageRoot;
         set => SetField(ref clientStorageRoot, value);
-    }
-
-    [Slider(
-        10f,
-        600f,
-        10f,
-        SliderAttribute.SliderType.Integer,
-        description: "Minimum time between client side history writes"
-    )]
-    public int ClientAutosaveIntervalS
-    {
-        get => clientAutosaveIntervalS;
-        set => SetField(ref clientAutosaveIntervalS, value);
-    }
-
-    [Slider(
-        1f,
-        365f,
-        1f,
-        SliderAttribute.SliderType.Integer,
-        description: "Client histories older than this are deleted at start"
-    )]
-    public int ClientHistoryRetentionDays
-    {
-        get => clientHistoryRetentionDays;
-        set => SetField(ref clientHistoryRetentionDays, value);
     }
 
     [Separator("Feedback")]

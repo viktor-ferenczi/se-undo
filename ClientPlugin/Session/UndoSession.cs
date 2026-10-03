@@ -22,7 +22,6 @@ namespace ClientPlugin.Session;
 public class UndoSession : MySessionComponentBase
 {
     public const string WorldFileName = "Undo.xml.gz";
-    public const string ClientFileName = "history.xml.gz";
 
     public static UndoDocument Document { get; private set; }
     public static string LastMessage;
@@ -33,14 +32,6 @@ public class UndoSession : MySessionComponentBase
     // The document as it was when the game took its save snapshot. The save worker
     // writes it next to the checkpoint, see WorldSavePatches.
     public static volatile byte[] SavedDocument;
-
-    // Client sessions: the history changed since it was last written
-    private static bool unsaved;
-    private static DateTime lastClientWriteUtc;
-
-    // Client sessions: the history is loaded once the server sent the player's
-    // identity, which is part of its path. Nothing is written before that.
-    private static bool waitingForIdentity;
 
     private static UndoDocumentSerializer Serializer =>
         serializer ??= new UndoDocumentSerializer(OpTypes.All);
@@ -70,9 +61,6 @@ public class UndoSession : MySessionComponentBase
         LastMessage = null;
         store = null;
         SavedDocument = null;
-        unsaved = false;
-        lastClientWriteUtc = DateTime.UtcNow;
-        MyEntities.OnEntityAdd += PasteMatch.OnEntityAdd;
         MyEntities.OnEntityAdd += OnEntityAdd;
         MySession.Static.OnSavingCheckpoint += OnSavingCheckpoint;
         MySession.OnUnloading += OnUnloading;
@@ -92,23 +80,14 @@ public class UndoSession : MySessionComponentBase
         }
 
         TerminalContextPatches.PatchControls();
-        waitingForIdentity = !Sync.IsServer;
-        if (!waitingForIdentity)
-            LoadDocument();
-    }
-
-    private static void LoadDocument()
-    {
         Document = Load();
         Configure();
         Changed();
-        unsaved = false;
     }
 
     protected override void UnloadData()
     {
         MySession.OnUnloading -= OnUnloading;
-        MyEntities.OnEntityAdd -= PasteMatch.OnEntityAdd;
         MyEntities.OnEntityAdd -= OnEntityAdd;
         Clear();
     }
@@ -120,38 +99,26 @@ public class UndoSession : MySessionComponentBase
             TerminalContextPatches.ControlsMayHaveChanged();
     }
 
-    // Before the game takes anything down. A client has no save event, so its
-    // history is written here.
+    // Before the game takes anything down
     private static void OnUnloading()
     {
         MySession.OnUnloading -= OnUnloading;
-        SaveClientHistory();
         Clear();
     }
 
     private static void Clear()
     {
-        PasteMatch.Reset();
         Recorder.Reset();
         Document = null;
         store = null;
         SavedDocument = null;
     }
 
-    // Where this session keeps its history, null when the config says not to:
-    // in the save folder where the plugin is the server, otherwise in the plugin's
-    // own storage, since a client has no save folder
-    private static string HistoryPath()
-    {
-        var config = Config.Current;
-        if (Sync.IsServer)
-            return config.PersistInTheWorldSave
-                ? Path.Combine(MySession.Static.CurrentPath, WorldFileName)
-                : null;
-        return config.PersistOnMultiplayerClient
-            ? Path.Combine(StoredGroups.WorldFolder(), ClientFileName)
+    // In the save folder, null when the config says not to keep the history
+    private static string HistoryPath() =>
+        Config.Current.PersistInTheWorldSave
+            ? Path.Combine(MySession.Static.CurrentPath, WorldFileName)
             : null;
-    }
 
     // A missing, unreadable or differently versioned file is an empty history
     private static UndoDocument Load()
@@ -176,11 +143,7 @@ public class UndoSession : MySessionComponentBase
         }
 
         document ??= new UndoDocument();
-        // Not on a client: its grids stream in after the load and come and go with
-        // the sync distance, so a missing one is only missing for now. Resolving a
-        // handle checks that the grid is there either way.
-        if (Sync.IsServer)
-            document.Grids.MarkMissing(MyEntities.EntityExists);
+        document.Grids.MarkMissing(MyEntities.EntityExists);
         return document;
     }
 
@@ -188,7 +151,7 @@ public class UndoSession : MySessionComponentBase
     private static void OnSavingCheckpoint(MyObjectBuilder_Checkpoint checkpoint)
     {
         SavedDocument = null;
-        if (Document == null || !Sync.IsServer || !Config.Current.PersistInTheWorldSave)
+        if (Document == null || !Config.Current.PersistInTheWorldSave)
             return;
 
         try
@@ -200,34 +163,6 @@ public class UndoSession : MySessionComponentBase
         catch (Exception e)
         {
             Log.Error($"Serializing the history for the save failed: {e}");
-        }
-    }
-
-    // Client sessions only: on unload, when the server saves, and after changes
-    public static void SaveClientHistory()
-    {
-        unsaved = false;
-        lastClientWriteUtc = DateTime.UtcNow;
-        if (
-            Document == null
-            || Sync.IsServer
-            || waitingForIdentity
-            || !Config.Current.PersistOnMultiplayerClient
-        )
-            return;
-
-        try
-        {
-            var path = HistoryPath();
-            Directory.CreateDirectory(Path.GetDirectoryName(path));
-            var temporary = path + ".tmp";
-            File.WriteAllBytes(temporary, Serializer.Save(Document));
-            File.Delete(path);
-            File.Move(temporary, path);
-        }
-        catch (Exception e)
-        {
-            Log.Error($"Writing the client side history failed: {e}");
         }
     }
 
@@ -250,23 +185,10 @@ public class UndoSession : MySessionComponentBase
         if (Document == null)
             return;
 
-        if (waitingForIdentity && MySession.Static.LocalPlayerId != 0)
-        {
-            waitingForIdentity = false;
-            LoadDocument();
-        }
-
         TerminalContextPatches.Update();
         Recorder.Update();
         Executor.Update(Document.Build);
         Executor.Update(Document.Terminal);
-
-        if (
-            unsaved
-            && (DateTime.UtcNow - lastClientWriteUtc).TotalSeconds
-                >= Config.Current.ClientAutosaveIntervalS
-        )
-            SaveClientHistory();
     }
 
     // After every history change
@@ -275,7 +197,6 @@ public class UndoSession : MySessionComponentBase
         if (Document == null)
             return;
 
-        unsaved = true;
         if (!Config.Current.DebugStatusFile)
             return;
 

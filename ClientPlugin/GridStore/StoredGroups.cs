@@ -9,9 +9,7 @@ using ClientPlugin.Session;
 using ClientPlugin.Settings;
 using Sandbox.Common.ObjectBuilders;
 using Sandbox.Definitions;
-using Sandbox.Engine.Multiplayer;
 using Sandbox.Game.Entities;
-using Sandbox.Game.Multiplayer;
 using Sandbox.Game.SessionComponents.Clipboard;
 using Sandbox.Game.World;
 using Sandbox.Graphics.GUI;
@@ -25,28 +23,14 @@ namespace ClientPlugin.GridStore;
 // The game side of the grid store: grid groups in and out of blueprint entries
 public static class StoredGroups
 {
-    // The current world's folder under the storage root, design section 8. Offline
-    // and hosted worlds are keyed by the save folder name plus the world id, a
-    // client session by server, player and world.
+    // The current world's folder under the storage root, design section 8: the save
+    // folder name plus the world id
     public static string WorldFolder()
     {
         var session = MySession.Static;
-        if (Sync.IsServer)
-        {
-            var folder = Sanitize(Path.GetFileName(session.CurrentPath));
-            var key = session.WorldId == Guid.Empty ? folder : folder + "_" + session.WorldId;
-            return Path.Combine(UndoSession.StorageRoot, "Worlds", key);
-        }
-
-        var world = Sanitize(session.Name);
-        if (session.WorldId != Guid.Empty)
-            world += "_" + session.WorldId;
-        var server = Sync.ServerId.ToString();
-        var host = MyMultiplayer.Static?.HostName;
-        if (!string.IsNullOrWhiteSpace(host))
-            server += "_" + Sanitize(host);
-        var player = $"{Sync.MyId}_{session.LocalPlayerId}";
-        return Path.Combine(UndoSession.StorageRoot, "Servers", server, player, world);
+        var folder = Sanitize(Path.GetFileName(session.CurrentPath));
+        var key = session.WorldId == Guid.Empty ? folder : folder + "_" + session.WorldId;
+        return Path.Combine(UndoSession.StorageRoot, "Worlds", key);
     }
 
     // Where the current world's grid store entries go, design section 9
@@ -59,8 +43,8 @@ public static class StoredGroups
         return chars.Length == 0 ? "_" : new string(chars);
     }
 
-    // The grids the group snapshot of a client replay takes along with this one, and
-    // the backup taken before a removal that takes a mechanical connection apart.
+    // The grids the backup taken before a removal that takes a mechanical connection
+    // apart holds along with this one.
     // Logical by default: what rotors, hinges, pistons and connectors hold together,
     // so a docked ship is put back with its carrier instead of being dropped.
     public static List<MyCubeGrid> GroupOf(MyCubeGrid grid) =>
@@ -184,10 +168,10 @@ public static class StoredGroups
         MyGuiSandbox.AddScreen(box);
     }
 
-    // For the group snapshot of a client replay, which is written when the replay
-    // already ran and nobody can be asked.
-    // ponytail: an oversized snapshot is refused unless the config says to always
-    // raise; the question would need the pending op to wait for the answer
+    // For the group backup an undo takes before it removes a mechanical base
+    // (RazeBlocksOp.Prepare), in the middle of the replay where nobody can be asked.
+    // ponytail: an oversized backup is refused unless the config says to always
+    // raise; the question would need the replay to wait for the answer
     public static StoreRow SaveNow(List<MyObjectBuilder_CubeGrid> builders, StoreReason reason)
     {
         StoreRow result = null;

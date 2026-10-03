@@ -2,7 +2,8 @@
 
 Client plugin for Space Engineers 1, loaded by Pulsar. Ctrl-Z reverts the last
 operation in the current context, Ctrl-Y applies it again. Primary use: offline ship
-design in creative, then friends multiplayer and creative servers.
+design in creative, then friends games the player hosts. Since 0.1.1 it is off on a
+client of a server (section 2).
 
 All game paths below were read in the decompiled client code on 2026-09-25.
 Paths are relative to `Sandbox.Game/Sandbox/Game/` unless another assembly is named.
@@ -23,10 +24,10 @@ Paths are relative to `Sandbox.Game/Sandbox/Game/` unless another assembly is na
   `RazeBlocksRequest`, `TryPasteGrid_Implementation`, `OnGridClosedRequest`,
   `SkinBlockRequest`, `SyncPropertyChanged_Implementation`, `SetCustomNameEvent`,
   `OnChangeDisplayNameRequest`, `UpdateProgram`. Offline the "server" is the same
-  process and requests are locally invoked, so the same code works in all modes. On a
-  client the plugin replays through these request methods only. Where it is the server
-  (offline, hosting) it prefers the server entry points that keep entity ids, listed
-  below, because the game replicates their results and block associations survive.
+  process and requests are locally invoked. The plugin only runs where it is the
+  server (offline, hosting), and there it prefers the server entry points that keep
+  entity ids, listed below, because the game replicates their results and block
+  associations survive.
 - A file only survives save, backup and restore when it is written into the save's
   staging folder `<world>/.new` while the snapshot is written. The game then copies it
   to the world folder, into every `Backup/<timestamp>/` folder, and back on restore.
@@ -46,7 +47,8 @@ Paths are relative to `Sandbox.Game/Sandbox/Game/` unless another assembly is na
   and broadcasts `BuildBlockSucess` with the builder; `MyEntities.CreateFromObjectBuilderAndAdd`
   creates a grid from a builder without remapping, and the replication layer sends it
   to clients (this is how grid-backups and hangar restore grids on servers). None of
-  these are reachable from a client of a dedicated server.
+  these are reachable from a client of a dedicated server, which is one reason the
+  plugin is off there.
 - A grid split (`MyCubeGrid.CreateSplit`) moves the block entities to the new grid; the
   blocks keep their entity ids and grid positions, and the new grid starts with the
   same transform.
@@ -60,15 +62,11 @@ Paths are relative to `Sandbox.Game/Sandbox/Game/` unless another assembly is na
   does not change.
 - A `[Server]` request raised on a local server runs synchronously inside the call. An
   event marked only `[Broadcast]` is not invoked on the server that raises it
-  (`MyReplicationLayerBase.ShouldServerInvokeLocally`), so a hook on the client half of
-  a request, like `PasteBlocksToGridClient_Implementation`, never runs where the server
-  is local.
+  (`MyReplicationLayerBase.ShouldServerInvokeLocally`), so the client half of a
+  request never runs where the server is local.
 - A static grid pasted out of voxel contact becomes a ship a moment later
   (`CheckConvertToDynamic`), unsupported stations allowed or not, unless its builder
   has `IsUnsupportedStation` set.
-- A client connected to a dedicated server has no save folder. `CurrentPath` points at
-  an uncreated placeholder under the local Saves folder that can collide with a local
-  world of the same name.
 
 ## 2. Session modes and permission policy
 
@@ -79,58 +77,57 @@ Paths are relative to `Sandbox.Game/Sandbox/Game/` unless another assembly is na
 | Client of a lobby | `MyMultiplayer.Static is MyMultiplayerLobbyClient` | Off |
 | Client of a dedicated server | `MyMultiplayer.Static is MyMultiplayerClientBase` and not a lobby client | Off |
 
-Since 0.1.1 the plugin is off wherever it is not the host, and in survival while
-creative tools are off. On a client of a dedicated server or of someone else's lobby
+Since 0.1.1 the plugin is on only where it is the host, and in survival only while
+creative tools are on. On a client of a dedicated server or of someone else's lobby
 it could do very little, and what it could do would be cheaty. `UndoSession.Active`
-is that check; the recording patches, the key handling, the grid history dialog and
-the text boxes of a world all ask it.
-On a client the session never loads a history (`BeforeStart` logs "Not the host" and
-stops), so the client side storage of section 8 and the client rows of the tables
-below are unused for now. Creative tools can be switched any time: with them off
-nothing is recorded and the keys go to the game, while work already under way (a
-stroke being coalesced, a removal settling, a pending replay) still finishes. The
-history stays and works again once the tools are back on. What the player changed in
-between is not recorded, and an undo that no longer fits is refused as usual.
+(`Document != null && Sync.IsServer && Permissions.Creative`) is that check; the
+recording patches, the key handling, the grid history dialog and the text boxes of a
+world all ask it.
 
-`Permissions.Mode` (`SessionMode`) is this table; the status file and the log name the
-mode at session start. The ops themselves only ask `Sync.IsServer`: every server entry
-point of section 1 sits behind it, and a client sends requests only.
+On a client `BeforeStart` logs "Not the host, undo is off in this world" and loads
+nothing, so nothing is recorded or written there and the keys stay the game's.
+Creative tools can be switched any time, so `Active` is asked live: with them off
+nothing is recorded and the keys go to the game (Ctrl-Z is relative dampeners, Ctrl-H
+the render profiler toggle), while work already under way (a stroke being coalesced,
+a removal settling, a pending replay) still finishes. The history stays and works
+again once the tools are back on. What the player changed in between is not
+recorded, and an undo that no longer fits is refused as usual.
 
-Within a mode, each operation kind has a predicate the plugin evaluates before applying
-an undo or redo. It mirrors the server check so the plugin refuses cleanly instead of
-sending a request that fails with a notification.
+`Permissions.Mode` (`SessionMode`) is this table; the log and the status file name the
+mode at session start. Since the plugin only works where `Sync.IsServer` holds, the
+ops always take the server entry points of section 1 and have no client branches.
 
-"Creative" below is `MySession.Static.CreativeMode || MySession.Static.CreativeToolsEnabled(Sync.MyId)`.
-The first design used `HasPlayerCreativeRights` in several rows. That is the server's
-check for requests from clients, but it is true for everyone when `MyMultiplayer.Static`
-is null, and the server skips it for requests it invokes itself, so offline and for a
-host it limits nothing. "Creative" is never looser than the server's checks
-(`CreativeToolsEnabled` implies the creative rights), so a client that passes it is not
-kicked.
+"Creative" is `Permissions.Creative`: `MySession.Static.CreativeMode ||
+MySession.Static.CreativeToolsEnabled(Sync.MyId)`. The first design used
+`HasPlayerCreativeRights`. That is the server's check for requests from clients, but
+it is true for everyone when `MyMultiplayer.Static` is null and for a space master
+with the tools off, so offline and for a host it limits nothing.
 
-| Operation kind | Predicate (client side mirror of the server check) |
+The local server skips its own checks for the requests it raises itself. Without a
+check of its own, an undo could do what the player cannot do by hand. Each operation
+kind therefore has a predicate the plugin evaluates before applying an undo or redo,
+a mirror of the server's check, and the step is refused when it fails.
+
+| Operation kind | Predicate (mirror of the server check) |
 |---|---|
-| Build blocks | Always allowed. Without Creative the blocks come back as construction sites and cost components, which is what a player could do by hand; the plugin makes the cube builder's own check first (`MyCubeBuilder.BuildComponent.GetBlocksPlacementMaterials`, `HasBuildingMaterials` of the local character) and refuses with "missing components", because a local server builds its own requests without it. A seated character also pays from the inventories its seat reaches through the conveyors |
-| Raze blocks | Creative |
-| Restore blocks with full state (paste into grid, or the block builders on a server) | Creative; otherwise fall back to Build blocks |
-| Merge split pieces back | Creative |
-| Paste grids, close grids, group snapshot restore | `IsCopyPastingEnabledForUser(Sync.MyId)` for the paste; for the close Creative, then the ownership rule of `OnGridClosedRequest` (space master, no big owner, a big owner, or the faction leader of one). The server answers a rights failure with `ValidationFailed`, which can kick, so a client has to check first. In creative without creative tools copy and paste follows the world's `EnableCopyPaste`, which the Earth test world has off; the test rig turns it on |
-| Paint and skin | Ownership rule of `ColorGridOrBlockRequestValidation` (no creative rights needed) |
-| Terminal property, block name | `CanLocalPlayerChangeValue()` of the resolved block |
-| Grid name | The `BigOwner` validation of `OnChangeDisplayNameRequest`: the grid has no big owner or the player is one. The server skips it for its own requests |
+| Build blocks, raze blocks, restore removed blocks, merge split pieces back | None beyond the grid, and the parts split off, still being there. With creative mode or creative tools the player can do all of this by hand |
+| Paste grids, group snapshot restore | `IsCopyPastingEnabledForUser(Sync.MyId)`. The group snapshot restore closes the group's current grids first, so each of them also has to pass the close rule below. In creative without creative tools copy and paste follows the world's `EnableCopyPaste`, which the Earth test world has off; the test rig turns it on |
+| Close grids | The ownership rule of `OnGridClosedRequest` (`Permissions.CloseRefusal`): space master, no big owner, a big owner, or the faction leader of one |
+| Paint and skin | Ownership rule of `ColorGridOrBlockRequestValidation` |
+| Terminal property, block name, Custom Data, block toolbar slot | `CanLocalPlayerChangeValue()` of the resolved block |
+| Grid name | None. The server skips the `BigOwner` validation of `OnChangeDisplayNameRequest` for its own requests, and the plugin does not mirror it |
 | PB program | `IsUserScripter(Sync.MyId)`, and `CanLocalPlayerChangeValue()` of the block |
 
-Survival as a regular player therefore has: build, paint, terminal property, names, PB
-program. It does not have raze, paste, close and snapshot restore, so undo cannot be
-used to remove blocks for free or to duplicate ships. Enabling creative tools unlocks
-the rest, which matches what the player could do through the game anyway. Nothing in
-the plugin needs admin rights of its own.
+Up to 0.1.0 the plugin also worked for a regular survival player and on clients of a
+server: blocks came back as construction sites and cost components, and raze, paste,
+close and merge back needed creative tools. With the plugin off in both cases those
+rules and their refusals ("needs creative tools", "missing components") are gone.
+Nothing in the plugin needs admin rights of its own.
 
-A refusal reads "Undo not available: needs creative tools" (or "the grid no longer
-exists", "missing components", "copy and paste is disabled", and so on). What an op
-has to say about a step that went through is appended to the step's notification in
-parentheses: "restored as construction sites", "restored, some block links lost",
-"restored with changes".
+A refusal reads "Undo not available: the grid no longer exists" (or "copy and paste
+is disabled", "the grid belongs to someone else", "something is in the way", and so
+on). What an op has to say about a step that went through is appended to the step's
+notification in parentheses: "restored with changes", "1 block could not be placed".
 
 ## 3. Contexts and key handling
 
@@ -235,7 +232,7 @@ executor runs an op, and every record hook checks it.
 A history is locked for undo and redo while an asynchronous replay is pending
 (section 10), and the build history also while a removal waits for its grid splits
 to settle before it becomes a node (section 5). Ctrl-Z then says the last operation
-is still in progress. On a local server that wait is two frames.
+is still in progress. That wait is at least two frames.
 
 ## 5. Recorded operations
 
@@ -245,18 +242,18 @@ section 6. Every op has a validator (the predicate from section 2) and an apply 
 
 | Player action | Record hook | Forward op | Reverse op | Notes |
 |---|---|---|---|---|
-| Place blocks (single, line, plane) | Prefix and postfix on `MyCubeGrid.BuildBlocks(Vector3 color, MyStringHash skin, HashSet<MyBlockLocation>, long, long)` and on the `ref MyBlockBuildArea` overload. The prefix notes which requested cells are empty; where the server is local the request has run by the postfix, so only blocks that exist then count. A client records what it asked for | `BuildBlocks(grid, placements, color, skin)` | `RazeBlocks(grid, positions)` | A placement is definition, min and orientation; max and center are computed again with `MySlimBlock.ComputeMax` and `ComputePositionInGrid`. An area build is recorded as the list of blocks it produced. Redo reuses the recorded entity id while it is free, so a toolbar slot set on the block in between still works. Positions stay the stable reference |
-| Place a block into empty space (new grid) | Local server: postfix on the protected static `MyCubeBuilder.AfterGridBuild(builder, grid, ...)`, the callback of the spawn `RequestGridSpawn` starts, when `builder` is the local character; it hands over the new grid itself. Client: postfix on the private `AddBlocksToBuildQueueOrSpawn` overload with visuals when no grid is targeted (or a small grid goes onto a large static one); the grid is matched in `OnEntityAdd` by one block and the placement position, any name, since the server names it | `PasteGrids(store entry)` | `CloseGrids(grid)` | One block, cheap. Store reason "placed". A large block placed in the air is a ship and falls; the test undoes it within two seconds |
-| Remove blocks with the cube builder | Prefix on `MyCubeGrid.RazeBlocks(List<Vector3I>, long, ulong)`, `RazeBlocks(ref Vector3I, ref Vector3UByte, long)`, `RazeBlocksDelayed` (the cube builder's area removal) and `OnClosedMessageBox` (the same removal after the "remove the pilot too" question). `RazeBlock`, which grinders use for a fully ground block, is excluded. Snapshot each block with `MySlimBlock.GetObjectBuilder()` (not the copy variant, the block comes back as itself) into one `MyObjectBuilder_CubeGrid`, plus the association record of section 7. The node is committed once the splits settled: on a local server when `m_disconnectsDirty` is clear again and two frames passed, on a client after the pending timeout. Only blocks that are gone by then count. A removal that closes the grid (its last block) is not recorded; bringing a grid back is the grid paste op's job | `RazeBlocks` | `RestoreBlocks(grid, blocksBuilder)` | Server: `BuildBlockRequestInternal(visuals, location, builder, ...)` per block with the saved builder and the original entity id, so toolbars and other references to the block work again; replicated by `BuildBlockSucess`. Blocks that only connect through other removed blocks are retried until no more progress is made. The build request always shares ownership with the faction, so a different saved share mode is put back with `ChangeOwnerRequest`. Client: `PasteBlocksToGrid` with the one grid builder moved to the grid's current transform, which keeps names, settings and integrity but gets new ids. Without creative mode or creative tools, or with the full state option off: `BuildBlocks` from definition, orientation, color, skin |
-| Removal that splits the grid | `OnGridSplit` of the grid, subscribed while the removal waits to settle; the handler only collects the pieces, since it can run on a parallel update thread. Each piece gets a handle and a key, the position of one of its blocks, which is the same in the piece and in the main grid | `RazeBlocks` again, which on redo rebinds each piece handle to the new piece containing its key | Server: `MergeBack(mainGrid, pieces)` then `RestoreBlocks`. Client: close each piece with `OnGridClosedRequest` and paste its builder into the main grid with `PasteBlocksToGrid`, then `RestoreBlocks` | `MergeBack` is the live merge `MergeGrid_MergeBlock(piece, Vector3I.Zero, checkMergeOrder: false)`; the piece's block entities are the same objects the split moved, so ids, toolbars, block groups and controller references all survive. A split piece keeps the grid positions and starts with the main grid's transform, so the merge offset is zero; the server stops a dynamic piece and sets its world matrix to the main grid's first, because the merge transform takes the orientation from the world matrices. The client path captures the piece builders when the removal settles and re-pastes them; references crossing the piece boundary are lost there, section 7. If capture fails the node is not recorded |
-| Paste grids (free placement) | Local server: prefix on `MyCubeGrid.TryPasteGrid_Implementation` when locally invoked; it chains a callback into `MyPasteGridParameters.OnPasteFinished`, which gets the pasted grids (section 6). That covers the clipboard and every other local paste request, Remote's blueprint paste included. Client: prefix and postfix on the private `MyGridClipboard.PasteInternal`, expected grids from `m_copiedGrids` and `m_previewGrids`, matched in `OnEntityAdd` | `PasteGrids(store entry)` | `CloseGrids(handles)` | Server: the forward builders are read back from the pasted grids so a redo re-creates them with `CreateFromObjectBuilderAndAdd` under the same ids. Client: the paste request the clipboard sends, `RaiseStaticEvent(TryPasteGrid_Implementation, MyPasteGridParameters)`. A static paste that merges into a touching static grid right away is not recorded |
-| Paste blocks into an existing grid | Local server: prefix and postfix on `MyCubeGrid.PasteBlocksToGrid`; the server request runs inside it, so the new blocks are the grid's blocks after minus before. Client: the `PasteBlocksToGrid` prefix notes the grid, and a prefix and postfix on `PasteBlocksToGridClient_Implementation` take the same difference when the broadcast arrives | `RestoreBlocks(grid, merged blocks)` | `RazeBlocks(grid, positions)` | The broadcast never runs on a local server: `ShouldServerInvokeLocally` does not invoke a broadcast-only event there. The forward op is the removed block restore with the merged blocks read back from the grid, so a server redo keeps their ids; on a client it is the `PasteBlocksToGrid` request. The game merges only the first clipboard grid and adds the others as grids of their own, which are not recorded |
-| Delete grid or group (clipboard Delete, Cut, Remote's `grid_close`) | Prefix on `MyCubeGrid.SendGridCloseRequest`, the player's close request, which the clipboard's `DeleteGrid` sends and Remote's `grid_close` sends on both sides since CometWorks/remote#28; a prefix on `MyGridClipboard.DeleteGroup` captures the whole group as one node and keeps the per grid requests inside it from becoming nodes of their own. Snapshot `grid.GetObjectBuilder(true)` for each grid (same as `CopyGridInternal`: clear pilots and turret shooting; the copy variant keeps the entity ids). Only grids that really closed count: at once on a local server, when they are gone or the pending timeout passed on a client | `CloseGrids` | `PasteGrids(store entry at original position and velocity)` | Server: re-created without remapping, ids and references to other grids survive. Client: paste request, new ids, handles rebound |
+| Place blocks (single, line, plane) | Prefix and postfix on `MyCubeGrid.BuildBlocks(Vector3 color, MyStringHash skin, HashSet<MyBlockLocation>, long, long)` and on the `ref MyBlockBuildArea` overload. The prefix notes which requested cells are empty; the local server has run the request by the postfix, so only blocks that exist then count | `BuildBlocks(grid, placements, color, skin)` | `RazeBlocks(grid, positions)` | A placement is definition, min and orientation; max and center are computed again with `MySlimBlock.ComputeMax` and `ComputePositionInGrid`. An area build is recorded as the list of blocks it produced. Redo reuses the recorded entity id while it is free, so a toolbar slot set on the block in between still works. Positions stay the stable reference |
+| Place a block into empty space (new grid) | Postfix on the protected static `MyCubeBuilder.AfterGridBuild(builder, grid, ...)`, the callback of the spawn `RequestGridSpawn` starts, when `builder` is the local character; it hands over the new grid itself | `PasteGrids(store entry)` | `CloseGrids(grid)` | One block, cheap. Store reason "placed". A large block placed in the air is a ship and falls; the test undoes it within two seconds |
+| Remove blocks with the cube builder | Prefix on `MyCubeGrid.RazeBlocks(List<Vector3I>, long, ulong)`, `RazeBlocks(ref Vector3I, ref Vector3UByte, long)`, `RazeBlocksDelayed` (the cube builder's area removal) and `OnClosedMessageBox` (the same removal after the "remove the pilot too" question). `RazeBlock`, which grinders use for a fully ground block, is excluded. Snapshot each block with `MySlimBlock.GetObjectBuilder()` (not the copy variant, the block comes back as itself) into one `MyObjectBuilder_CubeGrid`, plus the association record of section 7. The node is committed once the splits settled: when `m_disconnectsDirty` is clear again and two frames passed. Only blocks that are gone by then count. A removal that closes the grid (its last block) is not recorded; bringing a grid back is the grid paste op's job | `RazeBlocks` | `RestoreBlocks(grid, blocksBuilder)` | `BuildBlockRequestInternal(visuals, location, builder, ...)` per block with the saved builder and the original entity id, so toolbars and other references to the block work again; replicated by `BuildBlockSucess`. Blocks that only connect through other removed blocks are retried until no more progress is made. The build request always shares ownership with the faction, so a different saved share mode is put back with `ChangeOwnerRequest`. With the full state option off: `BuildBlocks` from definition, orientation, color, skin |
+| Removal that splits the grid | `OnGridSplit` of the grid, subscribed while the removal waits to settle; the handler only collects the pieces, since it can run on a parallel update thread. Each piece gets a handle and a key, the position of one of its blocks, which is the same in the piece and in the main grid | `RazeBlocks` again, which on redo rebinds each piece handle to the new piece containing its key | `MergeBack(mainGrid, pieces)` then `RestoreBlocks` | `MergeBack` is the live merge `MergeGrid_MergeBlock(piece, Vector3I.Zero, checkMergeOrder: false)`; the piece's block entities are the same objects the split moved, so ids, toolbars, block groups and controller references all survive. A split piece keeps the grid positions and starts with the main grid's transform, so the merge offset is zero; the server stops a dynamic piece and sets its world matrix to the main grid's first, because the merge transform takes the orientation from the world matrices |
+| Paste grids (free placement) | Prefix on `MyCubeGrid.TryPasteGrid_Implementation` when locally invoked; it chains a callback into `MyPasteGridParameters.OnPasteFinished`, which gets the pasted grids (section 6). That covers the clipboard and every other local paste request, Remote's blueprint paste included | `PasteGrids(store entry)` | `CloseGrids(handles)` | The forward builders are read back from the pasted grids so a redo re-creates them with `CreateFromObjectBuilderAndAdd` under the same ids. A static paste that merges into a touching static grid right away is not recorded |
+| Paste blocks into an existing grid | Prefix and postfix on `MyCubeGrid.PasteBlocksToGrid`; the server request runs inside it, so the new blocks are the grid's blocks after minus before | `RestoreBlocks(grid, merged blocks)` | `RazeBlocks(grid, positions)` | The forward op is the removed block restore with the merged blocks read back from the grid, so a redo keeps their ids. The game merges only the first clipboard grid and adds the others as grids of their own, which are not recorded |
+| Delete grid or group (clipboard Delete, Cut, Remote's `grid_close`) | Prefix on `MyCubeGrid.SendGridCloseRequest`, the player's close request, which the clipboard's `DeleteGrid` sends and Remote's `grid_close` sends on both sides since CometWorks/remote#28; a prefix on `MyGridClipboard.DeleteGroup` captures the whole group as one node and keeps the per grid requests inside it from becoming nodes of their own. Snapshot `grid.GetObjectBuilder(true)` for each grid (same as `CopyGridInternal`: clear pilots and turret shooting; the copy variant keeps the entity ids). The local server closes them inside the request; only grids that really closed count | `CloseGrids` | `PasteGrids(store entry at original position and velocity)` | Re-created without remapping, ids and references to other grids survive |
 | Paint or skin blocks, area or whole grid | Prefix and postfix on `MyCubeGrid.ChangeColorAndSkin(MySlimBlock, Vector3?, MyStringHash?)` record old and new per block; only when the change was initiated locally: a prefix on `SkinBlocks`, `SkinGrid`, `ColorBlocks` or `ColorGrid` opens a "paint stroke" for that grid, and `ChangeColorAndSkin` calls on it while the stroke is open are attributed to it | `Paint(grid, [(pos, hsv, skin)])` | `Paint(grid, [(pos, oldHsv, oldSkin)])` | Holding the mouse button calls `SkinBlocks` every frame. Calls are coalesced into one node until 300 ms pass without a call or a change; undo and redo commit an open stroke first. Color and skin are only applied when the stroke changed them, so a skin the player does not own is never sent. Apply groups blocks of equal (hsv, skin) into runs of adjacent block min positions along X and calls `SkinBlocks(min, max, hsv, skin, false)` per run; a run only covers cells that are min positions of its own blocks |
 | Terminal property change | Prefix, postfix and finalizer on `MyTerminalValueControl<TBlock, TValue>.SetValue(TBlock, TValue)` and its overrides, found through `MyTerminalControlFactory.GetControls(Type)` for the block type of every cube block definition whose controls exist (`AreControlsCreated`, risk R1). The prefix reads `GetValue(block)` as the old value, the postfix reads it again as the new one, since setters clamp. A per thread depth counter makes only the outermost call count: the checkbox and combo box overrides call the base method. While the terminal is open only blocks in the control's `TargetBlocks` are recorded, so a script that sets some other block's property meanwhile is left out; with "record outside the terminal" on every call counts | `SetProperty(block, controlId, value)` | `SetProperty(block, controlId, oldValue)` | Values are stored as text: bool, float, long, Color (packed), StringBuilder, enums, MyStringId. A control with another value type is logged once and neither patched nor recorded. Apply resolves the control by id via `MyTerminalControlFactory.GetControls` and calls `SetValue` through reflection, which triggers the normal sync. Changes arrive in bursts (a slider drag every frame, a multi selection once per block), so calls for the same control are collected until the text coalescing window passes without one, then become one node with one op per block. A block whose value ends where it started is dropped. Undo and redo commit an open burst first |
 | Block custom name | The terminal's Name box is a property control ("Name") and goes through `SetValue` on every text change. Prefixes on both `MyTerminalBlock.SetCustomName` overloads catch the other callers (mod API, Remote); they skip while a `SetValue` call is on the stack, which is the deduplication | `SetProperty(block, "Name", name)` | `SetProperty(block, "Name", oldName)` | No op type of its own. The Name box renames on every keystroke, not when the field loses focus; the burst rule above makes that one node per rename |
-| Grid name | Prefix on `MyCubeGrid.ChangeDisplayNameRequest(string)`; old value is `DisplayName` | `SetGridName` | `SetGridName(old)` | The Info tab sends it from the OK button and on Enter. Apply sends the same request; on a client it is pending until the broadcast changed `DisplayName` |
-| PB program | Prefix on the private `MyProgrammableBlock.SaveCode()`, where the editor's OK button and its "save changes?" question both end; old value is `m_programData`, new value the editor text. Also a prefix on the mod API setter `IMyProgrammableBlock.ProgramData` | `SetProgram(pb, source)` | `SetProgram(pb, oldSource)` | The design first hooked `SendUpdateProgramRequest` (client) and `UpdateProgram(string)` (server). Neither works: `SaveCode` stores the new source in the block before it sends the request, so the old one is gone by then, and where the server is local `SaveCode` calls `Recompile` directly and never reaches `UpdateProgram`, which only runs for another player's request. Apply sets `IMyProgrammableBlock.ProgramData`, which recompiles or sends the request. The setter recompiles on a server without telling its clients, so a lobby host raises the editor's request (`SendUpdateProgramRequest`) instead, which runs locally and is broadcast; "no program at all" cannot be sent that way and stays on the setter. Runtime state and Storage are lost, accepted. Sources are stored gzip compressed; a block that never had a program stores none |
+| Grid name | Prefix on `MyCubeGrid.ChangeDisplayNameRequest(string)`; old value is `DisplayName` | `SetGridName` | `SetGridName(old)` | The Info tab sends it from the OK button and on Enter. Apply sends the same request, which the local server runs inside the call |
+| PB program | Prefix on the private `MyProgrammableBlock.SaveCode()`, where the editor's OK button and its "save changes?" question both end; old value is `m_programData`, new value the editor text. Also a prefix on the mod API setter `IMyProgrammableBlock.ProgramData` | `SetProgram(pb, source)` | `SetProgram(pb, oldSource)` | The design first hooked `SendUpdateProgramRequest` (client) and `UpdateProgram(string)` (server). Neither works: `SaveCode` stores the new source in the block before it sends the request, so the old one is gone by then, and where the server is local `SaveCode` calls `Recompile` directly and never reaches `UpdateProgram`, which only runs for another player's request. Apply sets `IMyProgrammableBlock.ProgramData`, which recompiles. The setter recompiles on a server without telling its clients, so a lobby host raises the editor's request (`SendUpdateProgramRequest`) instead, which runs locally and is broadcast; "no program at all" cannot be sent that way and stays on the setter. Runtime state and Storage are lost, accepted. Sources are stored gzip compressed; a block that never had a program stores none |
 | Single line text box edits | Postfix on the private `MyGuiControlTextbox.OnTextChangedInternal`, which every text change goes through and which raises `TextChanged`. With focus: a snapshot of (text, caret), replacing the previous one while typing continues within 500 ms. Without focus the screen set the text, which resets the history. The `HandleInput` prefix takes the starting snapshot of a focused box, the postfix refreshes the caret, because paste and the arrow keys move it after the change | n/a | n/a | Transient per control, keyed by a `ConditionalWeakTable<MyGuiControlTextbox, TextHistory>`. Default 100 snapshots per control. Restoring a snapshot calls `SetText`, so listeners follow: an undo in the terminal's Name box renames the block, which the terminal history records as part of that rename. `MyGuiControlMultilineEditableText` is another class and is not touched |
 
 Not recorded in the first version: inventory transfers, production queue changes,
@@ -273,48 +270,39 @@ The `GridRegistry` maps handle to current `EntityId` and back. It is filled on l
 from `MyEntities` (existing grids get handles on first use) and updated whenever the
 plugin re-creates a grid.
 
-Blocks are referred to by `(gridHandle, Vector3I min)`. Positions survive re-creation
-of a grid from a builder on a client, block entity ids don't there. The handle also
-keeps the last known entity id so the server paths can restore under the same id. Terminal ops resolve the block at
-apply time by `grid.GetCubeBlock(pos)?.FatBlock` and refuse if it isn't the expected
-definition.
+Blocks are referred to by `(gridHandle, Vector3I min)`. Positions survive every
+re-creation of a grid. The handle also keeps the last known entity id, so a restore
+brings the grid back under the same id. Terminal ops resolve the block at apply time
+by `grid.GetCubeBlock(pos)?.FatBlock` and refuse if it isn't the expected definition.
 
 Finding the grids created by a paste request:
 
-- Server local (offline, hosting): a prefix on `TryPasteGrid_Implementation`, when
-  locally invoked, chains a callback into the request's `OnPasteFinished`. The game
-  calls it from `PasteGridData.Callback` on the main thread, after `AfterPaste` added
-  the grids, with exactly the grids of that request, or with a failure. The design
-  first read `___m_pastedGrids` in a postfix on the nested `PasteGridData.TryPasteGrid`,
-  but that runs on a parallel worker before the physics placement test, and
+- A prefix on `TryPasteGrid_Implementation`, when locally invoked, chains a callback
+  into the request's `OnPasteFinished`. The game calls it from
+  `PasteGridData.Callback` on the main thread, after `AfterPaste` added the grids,
+  with exactly the grids of that request, or with a failure. The design first read
+  `___m_pastedGrids` in a postfix on the nested `PasteGridData.TryPasteGrid`, but that
+  runs on a parallel worker before the physics placement test, and
   `Callback` may still close the grids; it would also need the pastes matched by
   order. The callback needs neither. While it is outstanding the build history is
   busy, for at most the pending timeout.
-- Client: the server never reports the new ids. `MyEntities.OnEntityAdd` is watched
-  for the paste match window after the request; a candidate matches when its
-  `DisplayName` and position (within the tolerance of the requested
-  `PositionAndOrientation`) match a pending paste and it has no more blocks than
-  asked for; fewer are accepted, since the server strips blocks (R5). The same matcher (`PasteMatch`)
-  serves the recording of the player's paste and the replay of a `PasteGrids` op. If
-  some of the expected grids arrive and others do not, the node is recorded in a
-  "reference lost" state: undoing it is refused with a notification, and the node is
-  kept. If none arrive the paste most likely failed on the server and nothing is
-  recorded.
+- Up to 0.1.0 a client, which never learns the new ids, matched arriving grids in
+  `MyEntities.OnEntityAdd` by name and position (`PasteMatch`), and a paste whose
+  grids did not all arrive was recorded as "reference lost". Both went with the
+  client support.
 
-The registry is saved with the history as `(handle, entityId)` pairs. On load, where
-the plugin is the server, entity ids that no longer exist are marked lost; a node whose
-ops reference a lost handle is refused, not dropped, because a later node may re-create
-the grid and reattach the handle. A client marks nothing at load: its grids stream in
-after the session started and come and go with the sync distance, so a handle is
-resolved against the entities that are there when an op needs it.
+The registry is saved with the history as `(handle, entityId)` pairs. On load, entity
+ids that no longer exist are marked lost; a node whose ops reference a lost handle is
+refused, not dropped, because a later node may re-create the grid and reattach the
+handle.
 
-## 7. Block associations and the snapshot fallback
+## 7. Block associations and group snapshots
 
 Blocks point at other blocks by entity id: toolbar slots in cockpits, timers, sensors,
 button panels, event controllers and AI blocks; turret controller azimuth, elevation,
 camera and tool lists; event controller selected blocks; rotor and piston tops; block
-groups (per grid, by block reference). The design keeps these intact wherever the
-plugin is the server, and states the loss where it is a client.
+groups (per grid, by block reference). The design keeps these intact; the plugin is
+always the server where it works (section 2).
 
 What survives by itself when the entity id is preserved:
 
@@ -327,7 +315,7 @@ What the referencing side drops when a block closes, and the plugin has to put b
 
 | Association | Dropped how | Recorded at removal | Reapplied after restore |
 |---|---|---|---|
-| Block groups | `MyGridTerminalSystem` removes the block from its groups and deletes empty groups | Names of the terminal system's groups the block was in | A group with the current members plus the block, through `MyGridTerminalSystem.AddUpdateGroup(group, fireEvent: true, modify: true)`, the call the terminal's group button makes. The event reaches `MyCubeGrid.ModifyGroup`, which raises the synced `OnModifyGroupSuccess`, so a client would take the same path (not tried yet) |
+| Block groups | `MyGridTerminalSystem` removes the block from its groups and deletes empty groups | Names of the terminal system's groups the block was in | A group with the current members plus the block, through `MyGridTerminalSystem.AddUpdateGroup(group, fireEvent: true, modify: true)`, the call the terminal's group button makes. The event reaches `MyCubeGrid.ModifyGroup`, which raises the synced `OnModifyGroupSuccess`, so joined clients follow (not tried yet) |
 | Turret controller tools | Not dropped: `BlockRemovedTool` sets the entry of the id to null and keeps the key, and `TerminalSystemOnBlockAdded` binds the tool again when a block with that id appears in the logical group | Turret controllers of the terminal system whose `m_boundTools` has the block's id | Nothing in the normal case. If the id is missing the controller gets `AddTool`, its synced request; if the entry is still null, `RecacheTools` |
 | Event controller selected blocks | `OnBlockClosing` removes the block from `m_selectedBlocks` | Event controllers of the terminal system whose `m_selectedBlocks` has the block's id | The controller's `AddBlocks` event, the one its Select button raises |
 
@@ -341,34 +329,23 @@ at removal time and only turret and event controllers, so it is cheap. Other blo
 types that hold ids (AI blocks, sensors, timers) do so through toolbars and survive by
 themselves.
 
-Client of a dedicated server: none of the id preserving entry points are reachable, so
-a restored block or piece gets new ids. Associations inside the re-pasted set are
-remapped consistently by the game; those crossing its boundary are lost, and the
-fix-up table above cannot be applied because the old ids are gone. The plugin reports
-"restored, some block links lost" in that case. The companion plugin in the follow up
-ticket removes this limitation by exposing the id preserving restore on the server.
+Group snapshot. A `GroupSnapshot` op holds the builders of a grid group
+(`StoredGroups.GroupOf`, the link type of `GroupLinkTypeForSnapshots`, Logical by
+default) in the grid store, plus the handles of its grids. Apply: send the close
+request for the current grids, wait until they are gone, then create the saved
+builders again with `CreateFromObjectBuilderAndAdd` without remapping, so ids and cross
+references come back. The wait matters: a closed grid releases its entity ids only
+when the close completes at the end of the frame, and creating an entity under an id
+still taken crashes the game. For the same reason `PasteGrids` remaps the builders
+when any of their ids is taken, and says so in the log. The wait is a pending check
+of section 10.
 
-Snapshot fallback. A `GroupSnapshot` op holds the builders of a logical grid group
-(`GetConnectedGrids(GridLinkTypeEnum.Logical)`, link type configurable) with their
-positions, plus the handles of the current grids. Apply: send the close request for
-the current grids, wait until they are gone, then create the saved builders again;
-on the server with `CreateFromObjectBuilderAndAdd` without remapping, so ids and cross
-references come back, on a client through the paste request, with the losses above.
-The wait matters on the server too: a closed grid releases its entity ids only when
-the close completes at the end of the frame, and creating an entity under an id still
-taken crashes the game. For the same reason the server path of `PasteGrids` remaps
-the builders when any of their ids is taken, and says so in the log.
-
-It is used in one situation only: an op applied on a client completed with an unknown
-result (section 10). Before the executor sends ops that change existing grids from a
-client, it captures the groups of those grids in memory, drops the capture on success
-and, on timeout or a reported failure, writes it to the grid store and attaches the
-op to the node. The next step across that node, in either direction, applies the
-snapshot instead of the node's ops: the snapshot is the state before the step that
-went wrong, and the current node already moved past it, so restoring it is what the
-step in the other direction leads to. Server side ops complete synchronously and
-never take one. An exception while applying ops leaves the current node where it was,
-so no snapshot is attached then; the node is refused as before.
+It is used in two situations, both below: the undo of a removal that takes a
+mechanical connection apart, and the redo of a placement whose blocks hold another
+grid. Up to 0.1.0 it was also the fallback after a client replay with an unknown
+result: the group was captured before the replay and restored on the next step across
+the node. That fallback is gone; such a node is now refused with "the result of X is
+unknown" (section 10).
 
 ### Removals that take a mechanical connection apart
 
@@ -472,8 +449,9 @@ changed since: renamed, configured, filled. Before the step is applied every op 
 `Prepare` with the ops of the other direction, and `RazeBlocksOp` saves the blocks as
 they are into the placement's `BuildBlocksOp` (`Restore`, or `Snapshot` with the whole
 group for the blocks named below). Redo then puts those blocks back instead of new
-ones from the definition. Without creative rights or with the full state option off
-redo builds from the definition as before.
+ones from the definition. With the full state option off redo builds from the
+definition as before, and also when the group backup does not fit the store budget
+(section 9).
 
 Blocks that hold another grid are not restored one by one. `RazeCapture.NeedsGroupBackup`
 is true for the base of a rotor, hinge, piston or suspension, the part on its other
@@ -513,10 +491,9 @@ Hooks:
   (`[MySessionComponentDescriptor(MyUpdateOrder.NoUpdate)]`, registered automatically
   from plugin assemblies by `MySession.RegisterComponentsFromAssembly`). Entities
   exist and `CurrentPath` is set. Missing file or version mismatch means an empty
-  history, never an error dialog.
-- Unload: `MySession.OnUnloading` writes the client side file described below and
-  clears the in-memory histories. Text histories are keyed weakly by their text box
-  and go with it.
+  history, never an error dialog. On a client it loads nothing (section 2).
+- Unload: `MySession.OnUnloading` clears the in-memory histories. Text histories are
+  keyed weakly by their text box and go with it.
 
 Backups and restores need no extra code: `MySessionSnapshot.Backup` copies all top
 level files of the world folder, and `MyGuiScreenLoadSandbox.CopyBackupUpALevel`
@@ -535,59 +512,36 @@ A world copied with Save As has the history but not the grid store, which is key
 the save folder name (below): in the copy, nodes that need a stored grid are refused
 until the player continues in the original. See R8.
 
-Client of a server (dedicated or someone else's lobby): unused since 0.1.1, the plugin
-is off there (section 2). No save folder, and no save event. The document goes into the plugin's own storage folder, with one sub-folder per
-server and per player character:
+The grid store entries (section 9) live under `<storage root>/Worlds/<world key>/`,
+where the storage root is `<UserDataPath>/Undo` or the "Client storage root" option,
+and the world key is the save folder name plus `WorldId`, so backups don't multiply
+the store.
 
-```
-<storage root>/Servers/<server>/<player>/<world>/history.xml.gz
-
-storage root   default <UserDataPath>/Undo, configurable
-server         Sync.ServerId, plus the sanitized host name for readability when known
-player         Sync.MyId (the Steam id) and the local identity id
-               (MySession.Static.LocalPlayerId), joined with an underscore, so two
-               accounts or a reset identity on the same server don't share a history
-world          sanitized SessionName, plus WorldId when it isn't Guid.Empty
-```
-
-Offline and hosted worlds keep `Undo.xml.gz` in the save folder as above; their grid
-store entries (section 9) live under `<storage root>/Worlds/<world key>/` where the
-world key is the save folder name plus `WorldId`, so backups don't multiply the store.
-
-A client learns its identity id from the server after the session started, so the
-file is loaded in the first frame in which `LocalPlayerId` is set, and nothing is
-written before that.
-
-It is written on `OnUnloading`, when the `OnServerSaving(true)` RPC arrives, and at
-most once per the configured interval after a change (default one minute). This history
-is not tied to the server's own backups; if the server restores an older world the
-plugin refuses nodes whose grids are gone, as in section 6. At plugin start a world
-folder under `Servers/` is deleted whole, history and grid store, when nothing in it
-was written for the configured retention (default 90 days), so the folder does not
-grow with every server ever visited; server and player folders left empty go with
-it. The config has a switch to turn client side persistence off, which stops both
-the loading and the writing.
+Up to 0.1.0 a client of a server, which has no save folder and no save event, kept
+its history under `<storage root>/Servers/<server>/<player>/<world>/history.xml.gz`,
+written on unload, on the server's saving RPC and by an autosave, and deleted after 90
+days without a write. All of that went with the client support. `Servers` folders left
+from it stay on disk untouched; the plugin neither reads nor cleans them, and the grid
+store budgets no longer count them.
 
 ## 9. Grid store and recovery dialog
 
-Every grid group builder the plugin has to capture anyway (delete, paste, split pieces
-on a client, the pre-op snapshot of section 7) goes into one store instead of into the
-history nodes. Nodes reference an entry by id. Keeping those entries longer than the
+Every grid group builder the plugin has to capture anyway (delete, paste, a new grid
+from one block, the group snapshots of section 7) goes into one store instead of into
+the history nodes. Nodes reference an entry by id. Keeping those entries longer than the
 history needs them, under a retention policy, gives a grid recovery feature with no
 extra backup work: the player opens a dialog, picks a backed up grid group, and gets it
 on the clipboard to paste wherever they want.
 
 Implemented in `GridStore/`: `GridStoreFolder` is the file and index side and has no
 game references, so the unit tests cover it; `StoredGroups` captures groups, builds
-the blueprint document and computes the row. Split pieces captured on a client are
-entries too (reason "split"), referenced from the raze and merge back ops.
+the blueprint document and computes the row.
 
 Layout, under the storage root of section 8:
 
 ```
 <storage root>/
   Worlds/<world key>/grids/            offline and hosted worlds
-  Servers/<server>/<player>/<world>/grids/   client sessions
     index.xml                          one row per entry, everything the dialog shows
     <id>.sbc.gz                        the builders, blueprint format
 ```
@@ -603,12 +557,13 @@ Keen's serializer output without the byte order mark. An entry is written to a `
 file and renamed, the index likewise; an index that does not parse is copied to
 `index.xml.bad` and the store starts a new one rather than overwriting it.
 
-Index row: id, UTC timestamp, reason (deleted, pasted, placed, split, snapshot), main grid name
-(the grid with the most blocks), grid count, total block count, PCU (sum of definition PCU), grid
-size class (large, small, mixed), static or dynamic, main grid entity id, compressed
-bytes. Everything is computed from the builders at write time, so the dialog never
-opens an entry file until the player picks one. The index is rewritten on every change
-and loaded once per session.
+Index row: id, UTC timestamp, reason (deleted, pasted, placed, snapshot; "split" in
+stores written by 0.1.0 clients), main grid name (the grid with the most blocks), grid
+count, total block count, PCU (sum of definition PCU), grid size class (large, small,
+mixed), static or dynamic, main grid entity id, compressed bytes. Everything is
+computed from the builders at write time, so the dialog never opens an entry file
+until the player picks one. The index is rewritten on every change and loaded once
+per session.
 
 Retention. Two byte budgets, per world folder and for the whole storage root, both in
 the config. When a write pushes a world folder over its budget, or the total over its
@@ -618,9 +573,8 @@ first could not get under budget and removes oldest first without exception. Gri
 group identity for this rule is the main grid entity id (plus name, so a renamed grid
 keeps its line). A history node whose entry was removed by cleanup is refused on undo
 with "backup was cleaned up", the node itself stays. The total budget cleanup considers
-entries across all world folders, so an old world's entries give way to the current
-one. The client history retention days of section 8 delete whole world folders as
-before.
+entries across all world folders under `Worlds/`, so an old world's entries give way
+to the current one.
 
 As built (`StoreRetention`): cleanup runs after every entry that was committed. An
 entry indexed twice counts once and its file stays while a row needs it. For the
@@ -655,9 +609,11 @@ ops in section 10), and the answer then commits or deletes the temporary file.
 As built (`StoredGroups.Save`): the lock is the recorder's busy state, which the
 executor checks for both contexts. A box closed in any other way than through its
 buttons counts as No. An entry whose file is in the store already takes no new space
-and does not ask. Two captures cannot wait for an answer, the group snapshot of
-section 7 and a split piece captured on a client: they follow the config option when
-it is "Always raise" and are refused otherwise.
+and does not ask. One capture cannot wait for an answer: the group snapshot the undo
+of a placement takes for its redo (`RazeBlocksOp.Prepare`, section 7), since the
+replay is already running (`StoredGroups.SaveNow`). It follows the config option when
+it is "Always raise"; otherwise the snapshot is dropped and the redo builds the
+blocks from their definition.
 
 Dialog. Opened by a configurable binding (default Ctrl-H) in the Build context, and by
 a button in the plugin's config dialog. No vanilla game control uses Ctrl-H, but
@@ -666,8 +622,8 @@ with any Ctrl held, Shift or not, through `MyGeneralStats.ToggleProfiler`, its o
 caller. A prefix there skips the toggle while the Build context is active and the
 grid history binding matches exactly, so Ctrl-Shift-H keeps opening the profiler and
 Ctrl-H outside gameplay still does too. It is a `MyGuiScreenBase` with a
-`MyGuiControlTable` listing the entries of the current world and player only, one row
-per index entry. Columns in this order: Time (local), Name, Blocks, Grids, PCU, Size,
+`MyGuiControlTable` listing the entries of the current world only, one row per index
+entry. Columns in this order: Time (local), Name, Blocks, Grids, PCU, Size,
 Reason. Bytes and the static flag are shown in the row tooltip rather than as columns
 so the table fits at 1280x720.
 
@@ -703,27 +659,32 @@ opening the dialog does not also switch the signal mode.
 
 `Executor.Undo()` / `Redo()` run on the main thread from the key handlers:
 
-1. Pick the node. If there is none, notify "Nothing to undo" and stop.
+1. Pick the node. If there is none, notify "Nothing to undo" and stop. A barrier
+   node (section 9) and a node whose result is unknown (step 4) are refused here.
 2. Validate every op of the node with its predicate and reference resolution. If any
-   fails, notify why ("Undo not available: needs creative tools", "... the grid no longer
-   exists") and stop. Nothing
-   is applied partially by the plugin's own choice.
-3. Set the re-entrancy flag, apply the ops in order, clear the flag.
-4. Ops that complete asynchronously (paste, close, grid name, paint on a client) are
-   tracked by the `Pending` list: the op registers what it expects (a grid added, a
-   grid removed, a broadcast arrived) and the executor keeps the history locked for
-   further undo or redo until they complete or a timeout of 5 seconds passes. A close
-   is checked on a local server too, since the game refuses an economy station there
-   without an error. On timeout the node is marked "unknown result": the next step
-   across it goes through the group snapshot path if a snapshot exists (section 7),
-   otherwise it is refused.
+   fails, notify why ("Undo not available: the grid no longer exists", "... copy and
+   paste is disabled") and stop. Nothing is applied partially by the plugin's own
+   choice.
+3. Set the re-entrancy flag, apply the ops in order, clear the flag. Before that every
+   op gets `Prepare` with the ops of the other direction (section 7, redo of a
+   placement).
+4. The local server runs most requests inside the call. Ops that still complete later
+   return a check, which becomes the history's `Pending` op: a close (the grids marked
+   for close), a group snapshot restore (the old grids gone, then the group created
+   again) and a replayed removal that splits the grid (the splits settled, the piece
+   handles rebound). The executor keeps the history locked for further undo or redo
+   until the check passes or the pending timeout of 5 seconds passes. A close is
+   checked because the game refuses an economy station without an error. On timeout
+   the node is marked "unknown result", and the next step across it is refused with
+   "the result of X is unknown". An exception while applying the ops marks the node
+   the same way and leaves `current` where it was.
 5. Move `current`, show a HUD notification with the node label.
 
 Failures reported by the server (`BuildBlocksFailedNotify`, `OnColorGridBlockFailed`,
 `ShowPasteFailedOperation`, `StationClosingDenied`) are already shown by the game. A
-postfix on each ends a pending op at once with an unknown result, which also attaches
-the group snapshot. `ValidationFailed` has no client side to hook; the server may kick
-the sender, which is why the client predicates of section 2 check first.
+postfix on each ends a pending op at once with an unknown result
+(`Executor.OnServerFailure`, `FailPending`). The plugin is the server, but these may
+still fire on a host for its own requests, so the hooks stay.
 
 ## 11. Configuration
 
@@ -749,22 +710,17 @@ other tunables.
 | Grid history binding | Ctrl-H | Opens the recovery dialog in the Build context; takes Ctrl-H from the vanilla render profiler there, which stays on Ctrl-Shift-H |
 | Grid history sort keys | Time descending | Saved column sort history of the dialog, stored as comma separated column names with a leading `-` for descending (`-Time`); no control in the config dialog |
 | Undo tree | off | Keep abandoned branches |
-| Group link type for snapshots | Logical | `GridLinkTypeEnum` used to collect the group snapshot of section 7; Physical also follows connectors. A clipboard delete takes the group the game closes |
+| Group link type for snapshots | Logical | `GridLinkTypeEnum` used to collect the group snapshot of section 7, the group backup taken before a removal takes a mechanical connection apart; Physical also follows connectors. A clipboard delete takes the group the game closes |
 | Record terminal changes outside the terminal | off | Toolbar and script driven property changes |
-| Restore removed blocks with full state | on | Restore with names, settings and ids in creative or with creative tools; off always rebuilds from the definition |
+| Restore removed blocks with full state | on | Restore with names, settings and ids; off always rebuilds from the definition |
 | Paint stroke timeout ms | 300 | Coalescing window for held mouse painting |
 | Text coalescing window ms | 500 | Typing pauses shorter than this stay in one text snapshot. Also the window that collects terminal changes of one control into one node |
 | Pending operation timeout s | 5 | How long the executor waits for an asynchronous op before marking the node unknown |
-| Paste match window s | 5 | How long `OnEntityAdd` candidates are matched to a pending paste on a client |
-| Paste match position tolerance m | 0.5 | Position tolerance for that match |
 | Persist in the world save | on | Section 8, offline and hosting |
-| Persist on multiplayer client | on | Section 8, client side storage |
-| Client storage root | `<UserDataPath>/Undo` | Root of the grid store (`Worlds/`) and the client histories (`Servers/`); empty in the config means the default |
-| Client autosave interval s | 60 | Minimum time between client side writes after a change |
-| Client history retention days | 90 | A client session's world folder with nothing written for this long is deleted at plugin start |
+| Client storage root | `<UserDataPath>/Undo` | Root of the grid store (`Worlds/`) and of the status file; empty in the config means the default |
 | Notifications | on | HUD text on undo, redo and refusals |
 | Notification duration ms | 2000 | HUD text lifetime |
-| Debug status file | off | Writes `<Client storage root>/status.json` after every history change, for the tests: both histories, the last notification, and the rows of the grid history dialog while it is open |
+| Debug status file | off | Writes `<Client storage root>/status.json` after every history change, for the tests: the session mode, both histories, the last notification, and the rows of the grid history dialog while it is open |
 | Log level | Info | Plugin log verbosity in the game log |
 
 ## 12. Code structure
@@ -774,10 +730,10 @@ ClientPlugin/
   Plugin.cs                 IPlugin: Harmony PatchAll, config change hook, per frame update
   Config.cs                 options above
   Feedback.cs               log with the configured level, HUD notifications
-  Session/                  UndoSession (MySessionComponentBase): per world state, loading
-                            the document, the save snapshot, the client side file, debug
-                            status file. WorldSavePatches: the write into the save's
-                            staging folder and the server saving RPC
+  Session/                  UndoSession (MySessionComponentBase): per world state, the
+                            Active check of section 2, loading the document, the save
+                            snapshot, debug status file. WorldSavePatches: the write
+                            into the save's staging folder
   History/                  Node, UndoHistory (tree, node cap, pending lock), Op base,
                             GridRegistry, Replay (the re-entrancy flag)
   Ops/                      one file per op kind: BuildBlocks, RazeBlocks, RestoreBlocks,
@@ -785,8 +741,8 @@ ClientPlugin/
                             CloseGrids; TerminalOps holds SetProperty, SetGridName and
                             SetProgram, TerminalValues reads and writes control values
                             as text. Also BlockLinks (section 7), SplitWatch,
-                            PasteMatch (section 6), GameAccess (grid handles, builder
-                            XML, placements). A paste into a grid replays as RestoreBlocks
+                            GameAccess (grid handles, builder XML, placements). A paste
+                            into a grid replays as RestoreBlocks
   Record/                   BuildContextPatches, GridContextPatches and
                             TerminalContextPatches, the Recorder, the captures that
                             settle over frames (RazeCapture, GridCaptures), PaintStroke
@@ -797,8 +753,8 @@ ClientPlugin/
                             rewrite
   Text/                     TextHistory (snapshots, no game references) and
                             TextHistories, the text box patches with one history per box
-  Storage/                  UndoDocument and its serializer, StatusFile, Gz,
-                            ClientRetention (old client histories); no game references
+  Storage/                  UndoDocument and its serializer, StatusFile, Gz; no game
+                            references
   GridStore/                GridStoreFolder (entry files, index, hashing, staged entries),
                             StoreRetention (budgets and cleanup), SortKeys (the dialog's
                             sort history), all three without game references;
@@ -843,7 +799,7 @@ once at start; the linear behavior is covered by the unit tests. Block links are
 from the sector file after `POST /v1/game/save`, since the Remote API has no endpoint
 for toolbars, controller lists or groups. The status file also carries the size of the
 serialized undo document, which runs the XML serialization of the real ops in game,
-and per node the "reference lost" and barrier flags and the store entries it refers
+and per node the unknown result and barrier flags and the store entries it refers
 to. While the grid history dialog is open it also has the dialog's sort keys and rows.
 The run's `Undo.cfg` sets the per world grid store budget to 1 MB, below the slider's
 minimum in the config dialog, for the retention and oversized rows.
@@ -885,8 +841,14 @@ Coverage, one test per row, each followed by redo where it applies:
 | Backup restore | save, build more, save again; delete the world folder's files and copy the older backup's files in their place, the way the game does; reload | nodes and cursor of the older save, its block there and the later one not, undo works |
 | Save As | `POST /v1/game/save` with a name; then from the title menu: Load Game, Save As | both new world folders have the file |
 | Backup restore by the game | title menu, Load Game, Backups, a backup whose history differs from the current one, Load | the world folder has that backup's file, the loaded history matches it |
-| Permissions | survival copy of the world, the character out of the cryo chamber: build a block and Ctrl-Z with creative tools off; with `settings/admin-flag` creative tools on raze a light, switch them off, Ctrl-Z, switch them on, Ctrl-Z. Paste with the tools on, Ctrl-Z with them off, then on | the build not recorded and no reaction to Ctrl-Z; the light stays gone while the tools are off, then comes back under its old id; the pasted grid stays while the tools are off, then goes |
-| Dedicated server client | Magnetar DS with DirectTransport and one client (`notes/game-test-instance-modes`, mode A), survival world, the client its administrator with creative tools: raze a light, Ctrl-Z | "Not the host, undo is off in this world" in the client log, the light stays gone, nothing written under the plugin's storage folder |
+| Permissions | survival copy of the world, the character out of the cryo chamber: build a block and Ctrl-Z with creative tools off; with `settings/admin-flag` creative tools on raze a light, switch them off, Ctrl-Z and Ctrl-H, switch them on, Ctrl-Z. Paste with the tools on, Ctrl-Z with them off, then on | the build not recorded and no reaction to Ctrl-Z; while the tools are off the light stays gone, Ctrl-Z switches the relative dampeners and Ctrl-H opens no dialog; with them on it comes back under its old id with its name; the pasted grid stays while the tools are off, then goes |
+| Dedicated server client | Magnetar DS with DirectTransport and one client (`notes/game-test-instance-modes`, mode A), survival world, the client its administrator with creative tools: raze a light, Ctrl-Z, Ctrl-H | "Session mode: ServerClient" and "Not the host, undo is off in this world" in the client log; Ctrl-Z switches the relative dampeners, Ctrl-H opens no dialog, the light stays gone, nothing written under the plugin's storage folder |
+
+The dated run records that follow are kept as they were written. Since 0.1.1 the
+client paths and the survival rules without creative tools they mention are gone
+(section 2). The dedicated server suite is now the two tests of its row above, with
+the client as administrator throughout, and no longer restarts the server or writes
+a client history.
 
 Implemented so far: the build, raze, referenced raze, split, paint, limits and tree
 option rows, plus two rows for the displaced vanilla keys and the terminal context
@@ -1015,6 +977,9 @@ in the tests.
 
 ## 14. Follow up tickets
 
+Since 0.1.1 the plugin is off on clients, so the server companion below has nothing
+to serve until client support comes back.
+
 - Remote plugin endpoints for the Undo tests: PB program get and set, skin in block
   detail, paint with a given color and skin, host an offline lobby.
 - Optional server companion (Magnetar plugin): expose the id preserving restore
@@ -1062,9 +1027,11 @@ in the tests.
   Legacy on Windows). If handles differ per instantiation there, the same body
   gets the hooks more than once; the depth counter of section 5 keeps that to one
   recorded change per call.
-- R2, paste correlation on DS clients is a heuristic (section 6). Acceptable for the
-  stated use case; the companion ticket removes it.
-- R3, `RazeBlocks` reverse in survival without creative tools only rebuilds skeleton
+- R2, moot since 0.1.1, the client paste matching is gone. It was: paste correlation
+  on DS clients is a heuristic (section 6). Acceptable for the stated use case; the
+  companion ticket removes it.
+- R3, moot since 0.1.1, the plugin is off in survival without creative tools. It was:
+  `RazeBlocks` reverse in survival without creative tools only rebuilds skeleton
   blocks. Documented in the notification text ("restored as construction sites"),
   seen in game offline.
 - R7, closed on 2026-09-27, confirmed in game (offline, creative). `BuildBlockRequestInternal`
@@ -1084,9 +1051,11 @@ in the tests.
   Entries are written gzip compressed and read only when applied or pasted; the store
   budgets bound the total on disk.
 - R5, the game's paste strips blocks with missing DLC or skins and scripts for non
-  scripters, so an undo of a delete can come back slightly different on a server. The
-  plugin reports "restored with changes" when the block count differs. Implemented,
-  never triggered: the test client owns no DLC blocks to lose.
+  scripters, so an undo of a delete could come back slightly different. Since 0.1.1
+  the plugin sends no paste request of its own; grids come back through
+  `CreateFromObjectBuilderAndAdd`. It still reports "restored with changes" when the
+  block count differs. Implemented, never triggered: the test client owns no DLC
+  blocks to lose.
 - R6, `ChangeColorAndSkin` also fires for changes received from other players. The paint
   stroke attribution in section 5 filters those; a change that arrives during a local
   stroke on the same grid could be misattributed. Rare, and the reverse just repaints
@@ -1101,6 +1070,10 @@ in the tests.
   if it turns out to matter.
 
 ## 16. Implementation order
+
+Kept as the record of how the plugin was built. Since 0.1.1 the client paths, the
+client side history file and the survival rules without creative tools that steps 4,
+7 and 8 and the status notes mention are gone (section 2).
 
 1. History, Node, Op base, GridRegistry, UndoDocument serialization, unit tests without
    the game (plain `dotnet test` project against the History and Storage code).

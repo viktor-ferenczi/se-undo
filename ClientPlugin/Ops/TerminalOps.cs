@@ -4,7 +4,6 @@ using ClientPlugin.History;
 using ClientPlugin.Storage;
 using Sandbox.Game.Entities.Blocks;
 using Sandbox.Game.Entities.Cube;
-using Sandbox.Game.Multiplayer;
 using VRageMath;
 
 namespace ClientPlugin.Ops;
@@ -72,20 +71,14 @@ public class SetGridNameOp : Op
     public override string Validate(GridRegistry grids)
     {
         var grid = grids.ResolveGrid(Grid);
-        if (grid == null)
-            return GameAccess.GridMissing;
-        return Permissions.CanRenameGrid(grid) ? null : Permissions.NotYourGrid;
+        return grid == null ? GameAccess.GridMissing : null;
     }
 
     public override Func<bool> Apply(GridRegistry grids)
     {
         var grid = grids.ResolveGrid(Grid);
         grid.ChangeDisplayNameRequest(Name);
-
-        // A client has the new name once the server's broadcast arrives
-        if (Sync.IsServer)
-            return null;
-        return () => grid.DisplayName == Name;
+        return null;
     }
 }
 

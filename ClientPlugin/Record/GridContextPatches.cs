@@ -9,7 +9,6 @@ using Sandbox.Definitions;
 using Sandbox.Engine.Utils;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Cube;
-using Sandbox.Game.Multiplayer;
 using Sandbox.Game.World;
 using VRage.Game.Entity;
 using VRage.Game.ModAPI;
@@ -25,14 +24,14 @@ public static class GridContextPatches
 {
     private const string PlacedLabel = "placed 1 block, new grid {0}";
 
-    // Local server: every paste request of the local player, whether from the
-    // clipboard or not. The request's own completion callback gets the grids.
+    // Every paste request of the local player, whether from the clipboard or not.
+    // The request's own completion callback gets the grids.
     [HarmonyPatch(typeof(MyCubeGrid), nameof(MyCubeGrid.TryPasteGrid_Implementation))]
     private static class TryPasteGridPatch
     {
         private static void Prefix(ref MyCubeGrid.MyPasteGridParameters parameters)
         {
-            if (!Recorder.CanRecord || !Sync.IsServer || !MyEventContext.Current.IsLocallyInvoked)
+            if (!Recorder.CanRecord || !MyEventContext.Current.IsLocallyInvoked)
                 return;
 
             var capture = new PasteCapture();
@@ -43,51 +42,6 @@ public static class GridContextPatches
                 capture.Finished(success, grids);
                 original?.Invoke(success, grids);
             };
-        }
-    }
-
-    // Client: the clipboard's free placement. The expected grids are known before the
-    // request; a paste into a grid goes through PasteBlocksToGrid instead.
-    private static bool mergeRequested;
-
-    [HarmonyPatch(typeof(MyGridClipboard), nameof(MyGridClipboard.PasteInternal))]
-    private static class ClipboardPastePatch
-    {
-        private static void Prefix(
-            MyGridClipboard __instance,
-            out List<PasteMatch.Expected> __state
-        )
-        {
-            mergeRequested = false;
-            __state =
-                Sync.IsServer || !Recorder.CanRecord
-                    ? null
-                    : __instance
-                        .m_copiedGrids.Zip(
-                            __instance.m_previewGrids,
-                            (copied, preview) =>
-                                new PasteMatch.Expected
-                                {
-                                    Name = copied.DisplayName,
-                                    Blocks = copied.CubeBlocks.Count,
-                                    Position = preview.WorldMatrix.Translation,
-                                }
-                        )
-                        .ToList();
-        }
-
-        private static void Postfix(bool __result, List<PasteMatch.Expected> __state)
-        {
-            var session = MySession.Static;
-            if (
-                __result
-                && __state != null
-                && !mergeRequested
-                && (session.CreativeMode || session.HasCreativeRights)
-            )
-                Recorder.Begin(
-                    new MatchCapture(new PasteMatch(__state), StoreReason.Pasted, "pasted {0}")
-                );
         }
     }
 
@@ -124,8 +78,8 @@ public static class GridContextPatches
         private static void Finalizer() => groupDelete = false;
     }
 
-    // Paste into an existing grid. A local server merges inside the request, so the
-    // new blocks are there by the postfix. A client waits for the server's broadcast.
+    // Paste into an existing grid. The local server merges inside the request, so the
+    // new blocks are there by the postfix.
     // ponytail: the game merges only the first clipboard grid and adds the others as
     // grids of their own, which are not recorded; a rare clipboard shape
     [HarmonyPatch(typeof(MyCubeGrid), nameof(MyCubeGrid.PasteBlocksToGrid))]
@@ -133,15 +87,7 @@ public static class GridContextPatches
     {
         private static void Prefix(MyCubeGrid __instance, out HashSet<MySlimBlock> __state)
         {
-            __state = null;
-            if (!Recorder.CanRecord)
-                return;
-
-            mergeRequested = true;
-            if (Sync.IsServer)
-                __state = new HashSet<MySlimBlock>(__instance.CubeBlocks);
-            else
-                Recorder.ExpectMerge(__instance);
+            __state = Recorder.CanRecord ? new HashSet<MySlimBlock>(__instance.CubeBlocks) : null;
         }
 
         private static void Postfix(MyCubeGrid __instance, HashSet<MySlimBlock> __state)
@@ -151,27 +97,8 @@ public static class GridContextPatches
         }
     }
 
-    // Broadcast to the clients only, a local server never runs it
-    [HarmonyPatch(typeof(MyCubeGrid), nameof(MyCubeGrid.PasteBlocksToGridClient_Implementation))]
-    private static class PasteBlocksToGridClientPatch
-    {
-        private static void Prefix(MyCubeGrid __instance, out HashSet<MySlimBlock> __state)
-        {
-            __state =
-                UndoSession.Document != null && Recorder.TakeMergeExpectation(__instance)
-                    ? new HashSet<MySlimBlock>(__instance.CubeBlocks)
-                    : null;
-        }
-
-        private static void Postfix(MyCubeGrid __instance, HashSet<MySlimBlock> __state)
-        {
-            if (__state != null)
-                Recorder.RecordMerge(__instance, __state);
-        }
-    }
-
-    // Local server: a block placed into empty space became a new grid. The spawn
-    // callback names the builder, which is the local character for the player's own.
+    // A block placed into empty space became a new grid. The spawn callback names
+    // the builder, which is the local character for the player's own.
     [HarmonyPatch(typeof(MyCubeBuilder), nameof(MyCubeBuilder.AfterGridBuild))]
     private static class AfterGridBuildPatch
     {
@@ -179,7 +106,6 @@ public static class GridContextPatches
         {
             if (
                 Recorder.CanRecord
-                && Sync.IsServer
                 && builder != null
                 && builder.EntityId == MySession.Static.LocalCharacterEntityId
                 && grid != null
@@ -188,64 +114,8 @@ public static class GridContextPatches
                 Recorder.RecordCreated(
                     new List<MyCubeGrid> { grid },
                     StoreReason.Placed,
-                    PlacedLabel,
-                    referenceLost: false
-                );
-        }
-    }
-
-    // Client: the same placement, matched by position when the grid arrives
-    [HarmonyPatch(
-        typeof(MyCubeBuilder),
-        nameof(MyCubeBuilder.AddBlocksToBuildQueueOrSpawn),
-        new[]
-        {
-            typeof(MyCubeBlockDefinition),
-            typeof(MatrixD),
-            typeof(Vector3I),
-            typeof(Vector3I),
-            typeof(Vector3I),
-            typeof(Quaternion),
-            typeof(MyCubeGrid.MyBlockVisuals),
-        },
-        new[]
-        {
-            ArgumentType.Normal,
-            ArgumentType.Ref,
-            ArgumentType.Normal,
-            ArgumentType.Normal,
-            ArgumentType.Normal,
-            ArgumentType.Normal,
-            ArgumentType.Normal,
-        }
-    )]
-    private static class SpawnRequestPatch
-    {
-        private static void Prefix(MyCubeBuilder __instance, out bool __state)
-        {
-            __state =
-                !Sync.IsServer
-                && Recorder.CanRecord
-                && (!__instance.GridAndBlockValid || __instance.PlacingSmallGridOnLargeStatic);
-        }
-
-        private static void Postfix(bool __result, bool __state, ref MatrixD worldMatrixAdd)
-        {
-            if (!__result || !__state)
-                return;
-
-            var expected = new PasteMatch.Expected
-            {
-                Blocks = 1,
-                Position = worldMatrixAdd.Translation,
-            };
-            Recorder.Begin(
-                new MatchCapture(
-                    new PasteMatch(new List<PasteMatch.Expected> { expected }),
-                    StoreReason.Placed,
                     PlacedLabel
-                )
-            );
+                );
         }
     }
 
