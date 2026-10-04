@@ -45,8 +45,10 @@ allowed in survival.
 ## Development
 
 Based on the [client plugin template](https://github.com/CometWorks/client-plugin-template).
-Run `setup.py` once to detect the game folder, then build the solution. Each build deploys
-into Pulsar's `Local` plugin folder, see the template's README for the details.
+Run `setup.py` once to detect the game folder, then build the solution. Load the working copy
+through a Pulsar development folder. Builds deploy into Pulsar's `Local` plugin folder only if
+`Pulsar` is set in `Directory.Build.props.user` or passed as `-p:Pulsar=...`, see the template's
+README for the details.
 
 Tests: `dotnet test UndoTests` runs the history, storage and grid store unit tests
 without the game. The in game suites under `tests/` run on an isolated headless
