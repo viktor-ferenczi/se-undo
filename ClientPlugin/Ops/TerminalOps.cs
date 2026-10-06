@@ -82,8 +82,9 @@ public class SetGridNameOp : Op
     }
 }
 
-// Puts a program back and recompiles it. The running program's state and Storage are
-// lost, which the design accepts.
+// Puts a program back and recompiles it. The program's fields start over, which the
+// design accepts. Storage carries over from the replaced program: every recompile
+// hands it to the new instance.
 public class SetProgramOp : Op
 {
     public BlockRef Block;

@@ -8,6 +8,7 @@ those too) and undone in the terminal, where the terminal history has the keys.
 
 from __future__ import annotations
 
+import re
 import time
 from contextlib import contextmanager
 
@@ -180,14 +181,8 @@ def test_changes_coalesce_per_control_inside_the_window(game):
         assert close(prop(game, "Color"), before)
 
 
-def saved_program(game) -> str | None:
-    station = game.saved_station()
-    block = next(
-        b
-        for b in station.iter("MyObjectBuilder_CubeBlock")
-        if b.findtext("EntityId") == str(rig.IDS[rig.PROGRAMMABLE])
-    )
-    return block.findtext("Program")
+def program_of(game) -> str | None:
+    return game.api.get_pb_program(rig.IDS[rig.PROGRAMMABLE])
 
 
 def test_program_of_a_programmable_block(game):
@@ -196,7 +191,7 @@ def test_program_of_a_programmable_block(game):
     label = f"changed the program of {PB_NAME}"
     one = 'void Main() { Echo("one"); }'
     two = 'void Main() { Echo("two"); }'
-    assert not saved_program(game)
+    assert not program_of(game)
     last = last_id(game)
 
     api.set_pb_program(pb, one)
@@ -204,23 +199,90 @@ def test_program_of_a_programmable_block(game):
     time.sleep(PAUSE)
     api.set_pb_program(pb, two)
     recorded(game, last + 1, label)
-    assert saved_program(game) == two
+    assert program_of(game) == two
 
     with terminal(game):
         assert game.undo() == f"Undo: {label}"
-    assert saved_program(game) == one
+    assert program_of(game) == one
     with terminal(game):
         game.undo()
     # Back to a block that never had a program
-    assert not saved_program(game)
+    assert not program_of(game)
     with terminal(game):
         assert game.redo() == f"Redo: {label}"
         game.redo()
-    assert saved_program(game) == two
+    assert program_of(game) == two
     with terminal(game):
         game.undo()
         game.undo()
-    assert not saved_program(game)
+    assert not program_of(game)
+
+
+# Runs by itself every 10 frames. Only a new instance has runs at 0, and only that
+# one adds to Storage.
+RUNNER = """int runs;
+public Program() { Runtime.UpdateFrequency = UpdateFrequency.Update10; }
+void Main() { if (++runs == 1) Storage += "a"; Echo("A " + runs + " " + Storage); }"""
+RUN_ONCE = 'void Main() { Echo("B " + Storage); }'
+
+
+def echo(game) -> str:
+    block = game.block(rig.LINKS["program"], grid=rig.LINKS_ID)
+    return block.get("detailedInfo") or ""
+
+
+def runner(game) -> tuple[int, str] | None:
+    match = re.search(r"A (\d+) (\w*)", echo(game))
+    return (int(match[1]), match[2]) if match else None
+
+
+def run_once(game, storage: str) -> None:
+    assert game.api.run_pb(rig.LINKS_ID, rig.LINKS["program"])
+    wait_until(lambda: f"B {storage}" in echo(game), f"B to echo {storage!r}")
+
+
+def test_a_running_program_comes_back_running(game):
+    """The links rig's block has power, so its programs run. Undo brings back a
+    program that runs by itself, and it runs again. Its fields start over, but
+    Storage carries over from the program it replaced: the game saves Storage on
+    every recompile and hands it to the new instance."""
+    pb = rig.LINKS_IDS["program"]
+    label = "changed the program of Links program"
+    last = last_id(game)
+
+    game.api.set_pb_program(pb, RUNNER)
+    recorded(game, last, label)
+    wait_until(lambda: (runner(game) or (0,))[0] > 3, "the program to run by itself")
+    assert runner(game)[1] == "a"
+    time.sleep(PAUSE)
+    game.api.set_pb_program(pb, RUN_ONCE)
+    recorded(game, last + 1, label)
+    run_once(game, "a")
+
+    with terminal(game):
+        assert game.undo() == f"Undo: {label}"
+    assert game.api.get_pb_program(pb) == RUNNER
+    # A new instance: it added to Storage again, then kept running
+    count, storage = wait_until(lambda: runner(game), "the program to run again")
+    assert storage == "aa"
+    wait_until(lambda: runner(game)[0] > count, "the program to keep running")
+
+    with terminal(game):
+        assert game.redo() == f"Redo: {label}"
+    time.sleep(1)
+    assert "A " not in echo(game) and "B " not in echo(game), "something still runs"
+    run_once(game, "aa")
+
+    with terminal(game):
+        game.undo()
+        game.undo()
+    assert game.api.get_pb_program(pb) == rig.LINKS_PROGRAM
+    game.api.run_pb(rig.LINKS_ID, rig.LINKS["program"])
+    # "aaa" if the runner ran once between the two undo steps
+    wait_until(
+        lambda: re.fullmatch(r"a{2,3}", echo(game).strip()),
+        "the first program to echo Storage",
+    )
 
 
 def test_step_of_a_removed_block_is_refused_until_the_block_is_back(game):

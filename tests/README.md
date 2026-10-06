@@ -13,7 +13,8 @@ imports its Python client and copies its Earth test world. The game's own
 run, with experimental mode switched on.
 The grid tests need two Remote fixes from CometWorks/remote#28 (`grid_close` through
 the player's close request, the target endpoint naming armor blocks), which are on
-its main branch.
+its main branch. The terminal tests read programs with Remote's `GetProgram` call op
+(`get_pb_program`), also on its main branch.
 
 A Pulsar folder of its own, with only the Remote and Undo dev folders enabled:
 
@@ -74,7 +75,7 @@ about 27 minutes.
 | `test_spilled_items.py` | a container with items removed and restored in a world without temporary containers |
 | `test_mechanical.py` | rotor, hinge and piston bases removed and restored with their subgrids, the top part removed, a rotor on a moving ship, undo of placing a rotor |
 | `test_terminal.py` | checkbox, slider, names, text box, a program saved from the PB editor |
-| `test_terminal_more.py` | value kinds, toolbar actions, multi selection, coalescing, programs through the mod API, steps whose block is gone |
+| `test_terminal_more.py` | value kinds, toolbar actions, multi selection, coalescing, programs through the mod API, a running program, steps whose block is gone |
 | `test_terminal_endurance.py` | a combobox, and more slider changes than the 30 after which the recording used to stop (SE1-0079) |
 | `test_text_context.py` | text boxes of the toolbar config and chat screens |
 | `test_options.py` | the option switches: other keys, small limits, full state off, recording only in the terminal, no HUD text, no history in the save, "never store", another storage folder |
