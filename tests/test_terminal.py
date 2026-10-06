@@ -266,14 +266,8 @@ def editor(api) -> int | None:
     )
 
 
-def saved_program(game) -> str:
-    station = game.saved_station()
-    block = next(
-        b
-        for b in station.iter("MyObjectBuilder_CubeBlock")
-        if b.findtext("EntityId") == str(rig.IDS[rig.PROGRAMMABLE])
-    )
-    return block.findtext("Program") or ""
+def program_of(game) -> str:
+    return game.api.get_pb_program(rig.IDS[rig.PROGRAMMABLE]) or ""
 
 
 def test_pb_program_saved_from_the_editor(game):
@@ -284,7 +278,7 @@ def test_pb_program_saved_from_the_editor(game):
     label = "changed the program of Undo Programmable Block"
     game.stand_at((rig.PROGRAMMABLE[0], 1.0, rig.PROGRAMMABLE[2] - 1.0))
     aim = (rig.PROGRAMMABLE[0], rig.PROGRAMMABLE[1], rig.PROGRAMMABLE[2])
-    assert saved_program(game) == ""
+    assert program_of(game) == ""
     last = game.last_node_id("terminal")
 
     with game.open_terminal(aim) as screen:
@@ -302,19 +296,19 @@ def test_pb_program_saved_from_the_editor(game):
             last += 1
             time.sleep(1)
 
-    second = saved_program(game)
+    second = program_of(game)
     assert second.startswith("// second ") and "// first " in second
 
     with game.open_terminal(aim):
         assert game.undo() == f"Undo: {label}"
-    first = saved_program(game)
+    first = program_of(game)
     assert first.startswith("// first ") and "// second " not in first
 
     with game.open_terminal(aim):
         game.undo()
-    assert saved_program(game) == ""
+    assert program_of(game) == ""
 
     with game.open_terminal(aim):
         assert game.redo() == f"Redo: {label}"
         game.redo()
-    assert saved_program(game) == second
+    assert program_of(game) == second
