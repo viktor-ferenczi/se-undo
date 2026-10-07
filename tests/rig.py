@@ -844,28 +844,12 @@ def api(client: Client = CLIENT) -> RemoteAPI:
 
 
 def load_world(client: RemoteAPI, world: Path = WORLD, timeout: float = 420.0) -> None:
-    """Loads a test world. A bare XML sector first fails with a "needs XML" box;
-    OK retries the load with XML allowed. The session counts as loaded once it
-    stays active over several polls with no message box left. Coming from another
-    session, the status file the plugin writes at session start tells the new
-    session from the old one, still reported active while it unloads (SE1-0065)."""
-    leaving = client.get_state().get("active") and STATUS_FILE.exists()
-    marker = STATUS_FILE.stat().st_mtime_ns if leaving else None
+    """Loads a test world. A bare XML sector first fails with a "needs XML" box,
+    which wait_world clicks."""
     try:
         client.load(str(world))
     except Exception as err:  # noqa: BLE001 -- the load outlives the HTTP timeout
         print(f"load request returned early ({type(err).__name__})")
-    deadline = time.monotonic() + timeout
-    while leaving and STATUS_FILE.stat().st_mtime_ns == marker:
-        # The first load of a bare XML sector stops at the "needs XML" box
-        try:
-            for box in _message_boxes(client):
-                client.control_click(text="OK", screen=box["index"])
-        except Exception:  # noqa: BLE001 -- the API answers 500 while loading
-            pass
-        if time.monotonic() > deadline:
-            raise TimeoutError("The world did not start")
-        time.sleep(1)
     wait_world(client, timeout)
 
 
@@ -876,19 +860,11 @@ def _message_boxes(client: RemoteAPI) -> list[dict]:
 
 
 def reload_world(client: RemoteAPI, timeout: float = 420.0) -> None:
-    """Loads the world again from its folder, without saving first. The plugin
-    writes its status file when the new session starts, which tells the old
-    session, still reported active while it unloads (SE1-0065), from the new one."""
-    marker = STATUS_FILE.stat().st_mtime_ns
+    """Loads the world again from its folder, without saving first."""
     try:
         client.reload(save=False)
     except Exception as err:  # noqa: BLE001 -- the load outlives the HTTP timeout
         print(f"reload request returned early ({type(err).__name__})")
-    deadline = time.monotonic() + timeout
-    while STATUS_FILE.stat().st_mtime_ns == marker:
-        if time.monotonic() > deadline:
-            raise TimeoutError("The world did not start again")
-        time.sleep(0.5)
     wait_world(client, timeout)
     ensure_character(client)
     focus_gameplay(client)
@@ -896,25 +872,20 @@ def reload_world(client: RemoteAPI, timeout: float = 420.0) -> None:
 
 
 def wait_world(client: RemoteAPI, timeout: float = 420.0) -> None:
+    """Waits until the session is ready, clicking OK on any message box on the
+    way. OK on the "needs XML" box retries the load with XML allowed."""
     deadline = time.monotonic() + timeout
-    stable = 0
     while time.monotonic() < deadline:
-        time.sleep(2)
+        time.sleep(1)
         try:
-            screens = client.list_screens()
-            boxes = [s for s in screens if s.get("type") == "MyGuiScreenMessageBox"]
+            boxes = _message_boxes(client)
             for box in boxes:
                 client.control_click(text="OK", screen=box["index"])
-            # A load that is about to fail on the "needs XML" box reports an active
-            # session for a few seconds too, but never gets to the gameplay screen
-            playing = any(s.get("type") == "MyGuiScreenGamePlay" for s in screens)
-            ready = not boxes and playing and client.get_state().get("active")
-            stable = stable + 1 if ready else 0
-            if stable >= 3:
+            if not boxes and client.get_state().get("ready"):
                 return
-        except Exception:  # noqa: BLE001 -- the API answers 500 while loading
-            stable = 0
-    raise TimeoutError("The test world did not become active")
+        except Exception:  # noqa: BLE001 -- the API times out while a world loads
+            pass
+    raise TimeoutError("The test world did not become ready")
 
 
 def ensure_character(client: RemoteAPI, timeout: float = 90.0) -> dict:
