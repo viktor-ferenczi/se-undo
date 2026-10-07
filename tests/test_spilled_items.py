@@ -39,8 +39,9 @@ def test_container_comes_back_with_its_items(game):
     entity = game.block(CARGO, GRID)["entityId"]
 
     node = game.raze_block(CARGO, GRID)
-    time.sleep(1)
-    assert not free(game), "the loose items are expected to lie in the cell"
+    # Polled, not slept on: the items fall out of the cell under gravity, which
+    # on a busy machine can happen within a second
+    wait_until(lambda: not free(game), "the loose items in the cell", timeout=5)
 
     assert game.undo() == f"Undo: {node['label']}"
     wait_until(lambda: game.exists(CARGO, GRID), "the container")

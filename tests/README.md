@@ -3,7 +3,8 @@
 Pytest suite driven through the [Remote plugin](../../remote). It runs on an
 isolated headless client, so it never touches the game you play with, and it can
 run while other test clients are up. This file is about the offline rig; the
-dedicated server rig under `ds/` is described in [Docs/TESTING.md](../Docs/TESTING.md).
+dedicated server rig under `ds/` and the lobby rig under `lobby/` are described in
+[Docs/TESTING.md](../Docs/TESTING.md).
 
 ## One time setup
 

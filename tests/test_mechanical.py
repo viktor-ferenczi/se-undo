@@ -55,8 +55,11 @@ class Rig:
             sent = game.api.character_build_block(self.grid, cell, subtype=subtype)
             assert sent["sent"], sent
         game.wait_recorded(last, "placed 1 block")
-        # A base that is not built upright has its min corner in another cell
-        (self.cell,) = set(game.cubes(self.grid)) - cubes
+        # A base that is not built upright has its min corner in another cell. A
+        # client of a server sees it a moment after the server recorded it.
+        (self.cell,) = wait_until(
+            lambda: set(game.cubes(self.grid)) - cubes, "the base in the cube list"
+        )
         (top,) = wait_until(
             lambda: [g for g in game.grids() if g["entityId"] not in known],
             "the top part's grid",
