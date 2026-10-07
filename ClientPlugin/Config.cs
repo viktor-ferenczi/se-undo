@@ -1,31 +1,19 @@
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.CompilerServices;
 using ClientPlugin.Settings;
 using ClientPlugin.Settings.Elements;
 using ClientPlugin.Settings.Tools;
+using Shared;
+using VRage.FileSystem;
 using VRage.Game.ModAPI;
 using VRage.Input;
 
 namespace ClientPlugin;
 
-public enum OversizedGridBackups
-{
-    Ask,
-    AlwaysRaise,
-    NeverStore,
-}
-
-public enum LogLevel
-{
-    Error,
-    Warning,
-    Info,
-    Debug,
-}
-
 // Every number and key of the design is an option here, see design section 11.
-public class Config : INotifyPropertyChanged
+public class Config : INotifyPropertyChanged, IUndoOptions
 {
     #region Options
 
@@ -378,6 +366,30 @@ public class Config : INotifyPropertyChanged
         "Lists the grids backed up in the loaded world; a chosen one goes onto the clipboard"
     )]
     public static void OpenGridHistory() => Gui.GridHistoryScreen.Open();
+
+    #endregion
+
+    #region Shared options
+
+    public string StorageRoot =>
+        string.IsNullOrWhiteSpace(ClientStorageRoot)
+            ? Path.Combine(MyFileSystem.UserDataPath, Log.Name)
+            : ClientStorageRoot;
+
+    public void Save() => ConfigStorage.Save(this);
+
+    // What the local player's actor and the server's companion get
+    public PlayerOptions PlayerOptions() =>
+        new PlayerOptions
+        {
+            EnableBuildContext = EnableBuildContext,
+            EnableTerminalContext = EnableTerminalContext,
+            RecordTerminalChangesOutsideTerminal = RecordTerminalChangesOutsideTerminal,
+            RestoreRemovedBlocksWithFullState = RestoreRemovedBlocksWithFullState,
+            UndoTree = UndoTree,
+            MaxNodesBuild = MaxNodesBuild,
+            MaxNodesTerminal = MaxNodesTerminal,
+        };
 
     #endregion
 

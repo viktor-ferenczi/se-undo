@@ -1,20 +1,24 @@
 """Dedicated server rig for the Undo tests: a Magnetar server with DirectTransport
-and one headless client that joins it, both isolated from everything else on the
-machine (se/notes/game-test-instance-modes, mode A).
+and the Undo companion, and up to two headless clients that join it, all isolated
+from everything else on the machine (se/notes/game-test-instance-modes, mode A).
 
 Server: Magnetar config folder and DS data folder under ~/.se-test/undo-ds, UDP port
-27116. Client: Pulsar folder ~/.se-test/undo-mp with a renamed launcher, user data
-~/.se-test/undo-mp-data, Remote port 24177. The client's Pulsar folder is created
-once by hand, see Docs/TESTING.md; everything else is written here on each run.
+27116. It compiles the companion from this repo (UndoServer.xml) as a dev folder.
+Client: Pulsar folder ~/.se-test/undo-mp with a renamed launcher, user data
+~/.se-test/undo-mp-data, Remote port 24177. The second client is cloned from it into
+~/.se-test/undo-mp2, user data ~/.se-test/undo-mp2-data, Remote port 24178. The first
+client's Pulsar folder is created once by hand, see Docs/TESTING.md; everything else
+is written here on each run.
 
 Also usable from the command line while iterating::
 
-    uv run python tests/ds/ds_rig.py start [--admin]   # server and client, joined
+    uv run python tests/ds/ds_rig.py start [--admin] [--no-companion] [--two]
     uv run python tests/ds/ds_rig.py stop
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -22,6 +26,7 @@ import signal
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -54,6 +59,10 @@ SERVER_LOG = ROOT / "server.log"
 WORLD_NAME = "UndoTestServer"
 WORLD = SERVER_DATA / "Saves" / WORLD_NAME
 SERVER_NAME = "Undo Test Server"
+UNDO_ID = "AC284074-A676-4930-B47A-F30450988608"
+# The companion's config and its status file, under the server's instance folder
+SERVER_UNDO_CONFIG = {"DebugStatusFile": "true", "LogLevel": "Debug"}
+SERVER_STATUS = SERVER_DATA / "Undo" / "status-players.json"
 
 # --- client ------------------------------------------------------------------
 
@@ -67,7 +76,17 @@ CLIENT = rig.Client(
 CLIENT_ID = 76561199500000131
 CLIENT_NAME = "UndoTester"
 LOG = CLIENT.appdata / "SpaceEngineers.log"
-CLIENT_PLUGINS = ("remote", "AC284074-A676-4930-B47A-F30450988608", "direct-transport")
+CLIENT_PLUGINS = ("remote", UNDO_ID, "direct-transport")
+
+# The second client, an administrator without creative tools
+CLIENT2 = rig.Client(
+    os.environ.get("UNDO_MP2_PULSAR_DIR", HOME / ".se-test/undo-mp2"),
+    "UndoMp2Interim.bin",
+    os.environ.get("UNDO_MP2_APPDATA", HOME / ".se-test/undo-mp2-data"),
+    int(os.environ.get("UNDO_MP2_REMOTE_PORT", "24178")),
+)
+CLIENT2_ID = 76561199500000132
+CLIENT2_NAME = "UndoTester2"
 
 UNDO_CONFIG = {
     "DebugStatusFile": "true",
@@ -94,6 +113,27 @@ def _profile(ids) -> str:
         f"<Name>Current</Name><GitHub /><DevFolder>{folders}</DevFolder>"
         "<Local /><Mods /></Profile>\n"
     )
+
+
+def register_source(sources: Path, name: str, folder: Path, file: str) -> None:
+    """Points the loader's dev folder source of this name at a folder, adding it
+    when missing. The rig's loaders compile Remote and Undo from these working trees."""
+    tree = ET.parse(sources)
+    local = tree.getroot().find("LocalPluginSources")
+    if local is None:
+        local = ET.SubElement(tree.getroot(), "LocalPluginSources")
+    for plugin in local.findall("LocalPlugin"):
+        if plugin.findtext("Name") == name:
+            local.remove(plugin)
+    plugin = ET.SubElement(local, "LocalPlugin")
+    for tag, value in (
+        ("Name", name),
+        ("Folder", str(folder)),
+        ("File", file),
+        ("Enabled", "true"),
+    ):
+        ET.SubElement(plugin, tag).text = value
+    tree.write(sources, encoding="utf-8", xml_declaration=True)
 
 
 def prepare_world() -> None:
@@ -136,11 +176,14 @@ def prepare_world() -> None:
         path.write_text(text, encoding="utf-8")
 
 
-def prepare_server(admin: bool, fresh: bool = True) -> None:
+def prepare_server(admin: bool, fresh: bool = True, companion: bool = True) -> None:
     """Writes the server's Magnetar config and dedicated config. A fresh server
-    also gets a new copy of the world; otherwise the world it saved is kept."""
+    also gets a new copy of the world and starts with an empty grid store;
+    otherwise the world it saved is kept. Without the companion the server runs
+    DirectTransport only."""
     if fresh:
         prepare_world()
+        shutil.rmtree(SERVER_DATA / "Undo", ignore_errors=True)
 
     # Magnetar: the plugin sources of the machine's own instance, with a profile
     # that enables DirectTransport only
@@ -148,13 +191,23 @@ def prepare_server(admin: bool, fresh: bool = True) -> None:
         SERVER_CONFIG.mkdir(parents=True, exist_ok=True)
         shutil.copytree(MAGNETAR_TEMPLATE / "Sources", SERVER_CONFIG / "Sources")
         shutil.copy(MAGNETAR_TEMPLATE / "config.xml", SERVER_CONFIG / "config.xml")
+    register_source(
+        SERVER_CONFIG / "Sources" / "sources.xml", "se-undo", rig.REPO, "UndoServer.xml"
+    )
     (SERVER_CONFIG / "Profiles").mkdir(exist_ok=True)
     (SERVER_CONFIG / "Profiles" / "Current.xml").write_text(
-        _profile(["direct-transport"]), encoding="utf-8"
+        _profile(["direct-transport", UNDO_ID] if companion else ["direct-transport"]),
+        encoding="utf-8",
     )
 
     text = DS_CONFIG_TEMPLATE.read_text(encoding="utf-8")
-    admins = f"<unsignedLong>{CLIENT_ID}</unsignedLong>" if admin else ""
+    # The second client is an administrator too, for the ownership test; it plays
+    # without creative tools otherwise
+    admins = (
+        f"<unsignedLong>{CLIENT_ID}</unsignedLong><unsignedLong>{CLIENT2_ID}</unsignedLong>"
+        if admin
+        else ""
+    )
     for tag, value in {
         "IP": "127.0.0.1",
         "ServerPort": SERVER_PORT,
@@ -177,6 +230,14 @@ def prepare_server(admin: bool, fresh: bool = True) -> None:
         assert count == 1, tag
     SERVER_DATA.mkdir(parents=True, exist_ok=True)
     (SERVER_DATA / "SpaceEngineers-Dedicated.cfg").write_text(text, encoding="utf-8")
+
+    options = "".join(f"  <{k}>{v}</{k}>\n" for k, v in SERVER_UNDO_CONFIG.items())
+    (SERVER_DATA / "Undo.cfg").write_text(
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        f"<UndoServerConfig>\n{options}</UndoServerConfig>\n",
+        encoding="utf-8",
+    )
+    SERVER_STATUS.unlink(missing_ok=True)
 
 
 def server_pid() -> int | None:
@@ -240,45 +301,84 @@ def stop_server(timeout: float = 120.0) -> None:
     SERVER_PID.unlink(missing_ok=True)
 
 
-def start_client(timeout: float = 420.0):
-    """Starts the client, which joins on its own, and returns its API once the
-    character stands in the world"""
+def ensure_client2() -> None:
+    """Clones the first client's Pulsar folder for the second client, the way
+    rig.ensure_pulsar clones client slots"""
+    if CLIENT2.launcher.exists():
+        return
     if not CLIENT.launcher.exists():
         raise RuntimeError(f"{CLIENT.launcher} is missing, see Docs/TESTING.md")
-    profile = CLIENT.pulsar / "Legacy" / "Profiles" / "Current.xml"
-    profile.write_text(_profile(CLIENT_PLUGINS), encoding="utf-8")
+    CLIENT2.pulsar.mkdir(parents=True)
+    for entry in CLIENT.pulsar.iterdir():
+        target = CLIENT2.pulsar / entry.name
+        if entry.is_symlink():
+            target.symlink_to(entry.resolve())
+        elif entry.is_file():
+            shutil.copy2(entry, target)
+    shutil.copy2(CLIENT.launcher, CLIENT2.launcher)
+    shutil.copytree(
+        CLIENT.pulsar / "Legacy",
+        CLIENT2.pulsar / "Legacy",
+        ignore=shutil.ignore_patterns("Preloader", "info*.log"),
+    )
 
-    LOG.unlink(missing_ok=True)
+
+def start_client(
+    timeout: float = 420.0,
+    client: rig.Client = CLIENT,
+    client_id: int = CLIENT_ID,
+    name: str = CLIENT_NAME,
+):
+    """Starts a client, which joins on its own, and returns its API once the
+    character stands in the world"""
+    if client is CLIENT2:
+        ensure_client2()
+    if not client.launcher.exists():
+        raise RuntimeError(f"{client.launcher} is missing, see Docs/TESTING.md")
+    legacy = client.pulsar / "Legacy"
+    profile = legacy / "Profiles" / "Current.xml"
+    profile.write_text(_profile(CLIENT_PLUGINS), encoding="utf-8")
+    sources = legacy / "Sources" / "sources.xml"
+    register_source(sources, "remote", rig.REMOTE_REPO, "Remote.xml")
+    register_source(sources, "se-undo", rig.REPO, "Undo.xml")
+
+    log = client.appdata / "SpaceEngineers.log"
+    log.unlink(missing_ok=True)
     rig.launch(
-        CLIENT,
+        client,
         [
             "--connect",
             f"127.0.0.1:{SERVER_PORT}",
             "--client-id",
-            str(CLIENT_ID),
+            str(client_id),
             "--client-name",
-            CLIENT_NAME,
+            name,
         ],
         UNDO_CONFIG,
     )
-    api = rig.api(CLIENT)
+    api = rig.api(client)
     api.wait_for_api(max_wait=240)
-    wait_joined(api, timeout)
+    wait_joined(api, timeout, client)
     return api
 
 
-def joined() -> bool:
+def start_client2(timeout: float = 420.0):
+    return start_client(timeout, CLIENT2, CLIENT2_ID, CLIENT2_NAME)
+
+
+def joined(client: rig.Client = CLIENT) -> bool:
     """The plugin logs the session mode when the session starts"""
-    return LOG.exists() and "Undo: Info: Session mode:" in LOG.read_text(
+    log = client.appdata / "SpaceEngineers.log"
+    return log.exists() and "Undo: Info: Session mode:" in log.read_text(
         errors="replace"
     )
 
 
-def wait_joined(api, timeout: float = 420.0) -> None:
+def wait_joined(api, timeout: float = 420.0, client: rig.Client = CLIENT) -> None:
     deadline = time.monotonic() + timeout
-    while not joined():
-        if rig.running_pid(CLIENT) is None:
-            raise RuntimeError(f"The client exited, see {CLIENT.launch_log}")
+    while not joined(client):
+        if rig.running_pid(client) is None:
+            raise RuntimeError(f"The client exited, see {client.launch_log}")
         if time.monotonic() > deadline:
             raise TimeoutError("The client did not join the server")
         time.sleep(1)
@@ -313,13 +413,29 @@ def spawn(api, timeout: float = 300.0) -> None:
     raise TimeoutError("No live character")
 
 
+def server_player(steam_id: int) -> dict | None:
+    """The companion's status of one player, None before its handshake"""
+    for _ in range(20):
+        try:
+            players = json.loads(SERVER_STATUS.read_text(encoding="utf-8"))
+            return players["players"].get(str(steam_id))
+        except FileNotFoundError:
+            return None
+        except ValueError:  # written while read
+            continue
+    raise AssertionError("status-players.json is not readable")
+
+
 def stop_client() -> None:
     rig.stop(CLIENT)
+    rig.stop(CLIENT2)
 
 
 def clear_client_storage() -> None:
-    """The histories and grid stores earlier runs left for this server"""
-    shutil.rmtree(CLIENT.appdata / "Undo", ignore_errors=True)
+    """What earlier runs left in the clients' storage folders: status files, and
+    grid stores of the plugin versions that kept them on the client"""
+    for client in (CLIENT, CLIENT2):
+        shutil.rmtree(client.appdata / "Undo", ignore_errors=True)
 
 
 if __name__ == "__main__":
@@ -328,9 +444,13 @@ if __name__ == "__main__":
         stop_client()
         stop_server()
         clear_client_storage()
-        prepare_server(admin="--admin" in sys.argv)
+        prepare_server(
+            admin="--admin" in sys.argv, companion="--no-companion" not in sys.argv
+        )
         start_server()
         start_client()
+        if "--two" in sys.argv:
+            start_client2()
         print(f"Joined. Remote API on port {CLIENT.port}, server log {SERVER_LOG}")
     elif command == "stop":
         stop_client()

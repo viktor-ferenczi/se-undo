@@ -1,6 +1,6 @@
 using System;
-using ClientPlugin.Storage;
 using ClientPlugin.Text;
+using Shared.Storage;
 using Xunit;
 
 namespace UndoTests;

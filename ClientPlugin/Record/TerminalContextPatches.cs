@@ -7,8 +7,6 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
-using ClientPlugin.History;
-using ClientPlugin.Ops;
 using ClientPlugin.Session;
 using HarmonyLib;
 using Sandbox;
@@ -20,6 +18,12 @@ using Sandbox.Game.Gui;
 using Sandbox.Game.Screens.Helpers;
 using Sandbox.Game.Screens.Terminal.Controls;
 using Sandbox.Game.World;
+using Shared;
+using Shared.Companion;
+using Shared.History;
+using Shared.Ops;
+using Shared.Record;
+using Shared.Session;
 
 namespace ClientPlugin.Record;
 
@@ -246,7 +250,9 @@ public static class TerminalContextPatches
     {
         private static void Prefix(MyToolbar __instance, int i, bool gamepad, out string __state)
         {
-            __state = CanRecordToolbar(__instance) ? Slot(__instance, i, gamepad) : null;
+            __state = CanRecordToolbar(__instance)
+                ? BlockToolbars.Slot(__instance, i, gamepad)
+                : null;
         }
 
         private static void Postfix(MyToolbar __instance, int i, bool gamepad, string __state)
@@ -256,36 +262,23 @@ public static class TerminalContextPatches
 
             var block = (MyTerminalBlock)__instance.Owner;
             var toolbar = BlockToolbars.NameOf(block, __instance);
-            var item = Slot(__instance, i, gamepad);
+            var item = BlockToolbars.Slot(__instance, i, gamepad);
             if (toolbar != null && item != null && item != __state)
                 Recorder.RecordToolbar(block, toolbar, i, gamepad, __state, item);
         }
 
         // Only while the toolbar screen is open, which is where a player changes a
         // block's toolbar. The game sets slots by itself too: it fills a cockpit's
-        // toolbar when someone sits down.
+        // toolbar when someone sits down. On a host, a joined player's toolbar request
+        // ends here too, which is not the host's change.
         private static bool CanRecordToolbar(MyToolbar toolbar) =>
             toolbar.Owner is MyTerminalBlock
-            && UndoSession.Active
+            && !ServedRecordPatches.RemoteRequest
+            && Actors.Local?.Active == true
             && !Replay.Active
             && Config.Current.EnableTerminalContext
             && MyGuiScreenToolbarConfigBase.Static != null
             && Thread.CurrentThread == MySandboxGame.Static.UpdateThread;
-
-        private static string Slot(MyToolbar toolbar, int index, bool gamepad)
-        {
-            try
-            {
-                return BlockToolbars.Write(
-                    gamepad ? toolbar.GetItemAtIndexGamepad(index) : toolbar.GetItemAtIndex(index)
-                );
-            }
-            catch (Exception e)
-            {
-                Log.Debug($"Reading a toolbar slot failed: {e.Message}");
-                return null;
-            }
-        }
     }
 
     [HarmonyPatch(typeof(MyCubeGrid), nameof(MyCubeGrid.ChangeDisplayNameRequest))]

@@ -1,9 +1,10 @@
 # Undo plugin design
 
-Client plugin for Space Engineers 1, loaded by Pulsar. Ctrl-Z reverts the last
-operation in the current context, Ctrl-Y applies it again. Primary use: offline ship
-design in creative, then friends games the player hosts. Since 0.1.1 it is off on a
-client of a server (section 2).
+Client plugin for Space Engineers 1, loaded by Pulsar, and its server companion for
+Magnetar. Ctrl-Z reverts the last operation in the current context, Ctrl-Y applies
+it again. Primary use: offline ship design in creative, then friends games the player
+hosts. On a client of a server it works only when the server runs the companion
+(section 14), which records and replays for its players.
 
 All game paths below were read in the decompiled client code on 2026-09-25.
 Paths are relative to `Sandbox.Game/Sandbox/Game/` unless another assembly is named.
@@ -47,8 +48,8 @@ Paths are relative to `Sandbox.Game/Sandbox/Game/` unless another assembly is na
   and broadcasts `BuildBlockSucess` with the builder; `MyEntities.CreateFromObjectBuilderAndAdd`
   creates a grid from a builder without remapping, and the replication layer sends it
   to clients (this is how grid-backups and hangar restore grids on servers). None of
-  these are reachable from a client of a dedicated server, which is one reason the
-  plugin is off there.
+  these are reachable from a client of a dedicated server, so there the server's
+  companion runs them (section 14).
 - A grid split (`MyCubeGrid.CreateSplit`) moves the block entities to the new grid; the
   blocks keep their entity ids and grid positions, and the new grid starts with the
   same transform.
@@ -74,18 +75,23 @@ Paths are relative to `Sandbox.Game/Sandbox/Game/` unless another assembly is na
 |---|---|---|
 | Offline | `MyMultiplayer.Static == null` | Full functionality, in survival only while creative tools are on |
 | Hosting a lobby (friends) | `Sync.IsServer && MyMultiplayer.Static is MyMultiplayerLobby` | Same as offline. Replays go through the request methods or the server entry points of section 1, both of which the game replicates to the joined clients |
-| Client of a lobby | `MyMultiplayer.Static is MyMultiplayerLobbyClient` | Off |
-| Client of a dedicated server | `MyMultiplayer.Static is MyMultiplayerClientBase` and not a lobby client | Off |
+| Client of a lobby | `MyMultiplayer.Static is MyMultiplayerLobbyClient` | Served by the host when the host runs Undo, otherwise off (section 14) |
+| Client of a dedicated server | `MyMultiplayer.Static is MyMultiplayerClientBase` and not a lobby client | Served by the server's companion, otherwise off (section 14) |
+| Dedicated server | `Sync.IsDedicated`, only the server plugin runs there | Serves the players who run the client plugin (section 14) |
 
-Since 0.1.1 the plugin is on only where it is the host, and in survival only while
-creative tools are on. On a client of a dedicated server or of someone else's lobby
-it could do very little, and what it could do would be cheaty. `UndoSession.Active`
-(`Document != null && Sync.IsServer && Permissions.Creative`) is that check; the
-recording patches, the key handling, the grid history dialog and the text boxes of a
-world all ask it.
+Where the plugin is the host it records and replays for the local player, and in
+survival only while creative tools are on. A client keeps no history of its own: a
+client could only send the game's regular requests, which lose entity ids and block
+links, and the server could not check what a client side undo does. With the
+companion on the server, the server records and replays for the client instead
+(section 14). `UndoSession.Active` asks both: the local player's actor
+(`Document != null && Sync.IsServer && Creative`) or a companion that answered the
+handshake, with creative tools on. The recording patches, the key handling, the grid
+history dialog and the text boxes of a world all ask it.
 
-On a client `BeforeStart` logs "Not the host, undo is off in this world" and loads
-nothing, so nothing is recorded or written there and the keys stay the game's.
+On a client `BeforeStart` asks the server for the companion. Without an answer it
+logs "The server does not run the Undo companion, undo is off in this world", nothing
+is recorded or written there and the keys stay the game's.
 Creative tools can be switched any time, so `Active` is asked live: with them off
 nothing is recorded and the keys go to the game (Ctrl-Z is relative dampeners, Ctrl-H
 the render profiler toggle), while work already under way (a stroke being coalesced,
@@ -94,35 +100,37 @@ again once the tools are back on. What the player changed in between is not
 recorded, and an undo that no longer fits is refused as usual.
 
 `Permissions.Mode` (`SessionMode`) is this table; the log and the status file name the
-mode at session start. Since the plugin only works where `Sync.IsServer` holds, the
-ops always take the server entry points of section 1 and have no client branches.
+mode at session start. Ops are only ever applied where `Sync.IsServer` holds, so they
+always take the server entry points of section 1 and have no client branches.
 
-"Creative" is `Permissions.Creative`: `MySession.Static.CreativeMode ||
-MySession.Static.CreativeToolsEnabled(Sync.MyId)`. The first design used
+"Creative" is `Actor.Creative`: `MySession.Static.CreativeMode ||
+MySession.Static.CreativeToolsEnabled(steamId)` of the player the code runs for. The first design used
 `HasPlayerCreativeRights`. That is the server's check for requests from clients, but
 it is true for everyone when `MyMultiplayer.Static` is null and for a space master
 with the tools off, so offline and for a host it limits nothing.
 
-The local server skips its own checks for the requests it raises itself. Without a
-check of its own, an undo could do what the player cannot do by hand. Each operation
-kind therefore has a predicate the plugin evaluates before applying an undo or redo,
-a mirror of the server's check, and the step is refused when it fails.
+The server skips its own checks for the requests it raises itself. Without a check of
+its own, an undo could do what the player cannot do by hand. Each operation kind
+therefore has a predicate the plugin evaluates before applying an undo or redo, a
+mirror of the server's check for that player, and the step is refused when it fails.
+On a dedicated server the companion evaluates them for the player who asked.
 
 | Operation kind | Predicate (mirror of the server check) |
 |---|---|
 | Build blocks, raze blocks, restore removed blocks, merge split pieces back | None beyond the grid, and the parts split off, still being there. With creative mode or creative tools the player can do all of this by hand |
-| Paste grids, group snapshot restore | `IsCopyPastingEnabledForUser(Sync.MyId)`. The group snapshot restore closes the group's current grids first, so each of them also has to pass the close rule below. In creative without creative tools copy and paste follows the world's `EnableCopyPaste`, which the Earth test world has off; the test rig turns it on |
+| Paste grids, group snapshot restore | `IsCopyPastingEnabledForUser(steamId)`. The group snapshot restore closes the group's current grids first, so each of them also has to pass the close rule below. In creative without creative tools copy and paste follows the world's `EnableCopyPaste`, which the Earth test world has off; the test rig turns it on |
 | Close grids | The ownership rule of `OnGridClosedRequest` (`Permissions.CloseRefusal`): space master, no big owner, a big owner, or the faction leader of one |
 | Paint and skin | Ownership rule of `ColorGridOrBlockRequestValidation` |
-| Terminal property, block name, Custom Data, block toolbar slot | `CanLocalPlayerChangeValue()` of the resolved block |
+| Terminal property, block name, Custom Data, block toolbar slot | `CanPlayerChangeValue(identityId)` of the resolved block |
 | Grid name | None. The server skips the `BigOwner` validation of `OnChangeDisplayNameRequest` for its own requests, and the plugin does not mirror it |
-| PB program | `IsUserScripter(Sync.MyId)`, and `CanLocalPlayerChangeValue()` of the block |
+| PB program | `IsUserScripter(steamId)`, and `CanPlayerChangeValue(identityId)` of the block |
 
-Up to 0.1.0 the plugin also worked for a regular survival player and on clients of a
-server: blocks came back as construction sites and cost components, and raze, paste,
-close and merge back needed creative tools. With the plugin off in both cases those
-rules and their refusals ("needs creative tools", "missing components") are gone.
-Nothing in the plugin needs admin rights of its own.
+Up to 0.1.0 the plugin also worked for a regular survival player: blocks came back as
+construction sites and cost components, and raze, paste, close and merge back needed
+creative tools. Since 0.1.1 such a player gets no undo, and those rules are gone. The
+companion refuses a step that arrives from a player without creative tools with
+"needs creative tools"; the client plugin does not send one. Nothing in the plugin
+needs admin rights of its own.
 
 A refusal reads "Undo not available: the grid no longer exists" (or "copy and paste
 is disabled", "the grid belongs to someone else", "something is in the way", and so
@@ -465,8 +473,10 @@ nothing is stored on the blocks.
 
 ## 8. Persistence
 
-File: `Undo.xml.gz` in the world folder, one top level file. The root element is the
-plugin's own `UndoDocument` (version, both persisted histories, the grid registry),
+File: `Undo.xml.gz` in the world folder, one top level file, for the local player
+where the plugin is the host. The players a server serves have theirs in a second
+file, `UndoPlayers.xml.gz` (section 14). The root element is the plugin's own
+`UndoDocument` (version, both persisted histories, the grid registry),
 serialized with `System.Xml.Serialization.XmlSerializer` and gzip compressed. Block
 snapshots (removed blocks, blocks pasted into a grid) are stored as XML text produced by
 `MyObjectBuilderSerializerKeen.SerializeXML(Stream, ob)`, nested as element text; grid
@@ -482,8 +492,8 @@ Hooks:
   The plugin serializes the document into a byte array here, while the game state is
   consistent.
 - Write: postfix on `MyLocalCache.SaveCheckpoint(MyObjectBuilder_Checkpoint, string sessionPath, out ulong, List<MyCloudFile>)`,
-  only when `sessionPath` ends with `.new`. Writes the byte array to
-  `<sessionPath>/Undo.xml.gz` and adds a `MyCloudFile` to `fileList` so cloud saves
+  only when `sessionPath` ends with `.new`. Writes each byte array the snapshot step
+  left (`WorldSavePatches.Set`) to `<sessionPath>/<file name>` and adds a `MyCloudFile` to `fileList` so cloud saves
   carry it. This runs on the save worker thread, hence the snapshot step above. The
   bytes stay until the next save or the unload; the write does not consume them, so
   a save queued behind another one gets the file too.
@@ -491,7 +501,10 @@ Hooks:
   (`[MySessionComponentDescriptor(MyUpdateOrder.NoUpdate)]`, registered automatically
   from plugin assemblies by `MySession.RegisterComponentsFromAssembly`). Entities
   exist and `CurrentPath` is set. Missing file or version mismatch means an empty
-  history, never an error dialog. On a client it loads nothing (section 2).
+  history, never an error dialog. On a client it loads nothing (section 2). A
+  dedicated server registers no session component of the plugin: Magnetar
+  initializes plugins after the world loaded, so the server plugin starts the
+  companion from its first update with a ready session (section 14).
 - Unload: `MySession.OnUnloading` clears the in-memory histories. Text histories are
   keyed weakly by their text box and go with it.
 
@@ -515,7 +528,8 @@ until the player continues in the original. See R8.
 The grid store entries (section 9) live under `<storage root>/Worlds/<world key>/`,
 where the storage root is `<UserDataPath>/Undo` or the "Client storage root" option,
 and the world key is the save folder name plus `WorldId`, so backups don't multiply
-the store.
+the store. A served player's entries are in `players/<Steam id>/` below that, on the
+server; a dedicated server's `UserDataPath` is its instance folder.
 
 Up to 0.1.0 a client of a server, which has no save folder and no save event, kept
 its history under `<storage root>/Servers/<server>/<player>/<world>/history.xml.gz`,
@@ -533,7 +547,7 @@ history needs them, under a retention policy, gives a grid recovery feature with
 extra backup work: the player opens a dialog, picks a backed up grid group, and gets it
 on the clipboard to paste wherever they want.
 
-Implemented in `GridStore/`: `GridStoreFolder` is the file and index side and has no
+Implemented in `Shared/GridStore/`: `GridStoreFolder` is the file and index side and has no
 game references, so the unit tests cover it; `StoredGroups` captures groups, builds
 the blueprint document and computes the row.
 
@@ -541,9 +555,11 @@ Layout, under the storage root of section 8:
 
 ```
 <storage root>/
-  Worlds/<world key>/grids/            offline and hosted worlds
+  Worlds/<world key>/grids/            the local player's, offline and hosted worlds
     index.xml                          one row per entry, everything the dialog shows
     <id>.sbc.gz                        the builders, blueprint format
+  Worlds/<world key>/players/<Steam id>/grids/
+                                       a served player's, on the server (section 14)
 ```
 
 An entry file is a `MyObjectBuilder_Definitions` with one `ShipBlueprints` item whose
@@ -574,7 +590,9 @@ group identity for this rule is the main grid entity id (plus name, so a renamed
 keeps its line). A history node whose entry was removed by cleanup is refused on undo
 with "backup was cleaned up", the node itself stays. The total budget cleanup considers
 entries across all world folders under `Worlds/`, so an old world's entries give way
-to the current one.
+to the current one. On a server the per world budget is a budget per served player
+(each `players/<Steam id>/grids` folder), and the total covers all players of all
+worlds under its storage root.
 
 As built (`StoreRetention`): cleanup runs after every entry that was committed. An
 entry indexed twice counts once and its file stays while a row needs it. For the
@@ -655,6 +673,13 @@ vanilla "toggle signals" control (`TOGGLE_SIGNALS`), the only default binding on
 key; the key handler marks H as consumed for the frame, the same way as for undo, so
 opening the dialog does not also switch the signal mode.
 
+On a client of a server the dialog shows the server's grid store of that player
+(section 14): it asks the companion for the rows when it opens, the Paste button and
+the double click fetch the entry file from the server and put it on the clipboard the
+same way, and Delete asks the server to remove the entry. The server never asks about
+an oversized backup: it drops it, the node becomes a barrier, and its budgets stay as
+the server's config has them.
+
 ## 10. Applying an action
 
 `Executor.Undo()` / `Redo()` run on the main thread from the key handlers:
@@ -723,46 +748,85 @@ other tunables.
 | Debug status file | off | Writes `<Client storage root>/status.json` after every history change, for the tests: the session mode, both histories, the last notification, and the rows of the grid history dialog while it is open |
 | Log level | Info | Plugin log verbosity in the game log |
 
+On a client of a server the options that belong to the player go to the companion
+with the handshake, again when they change: the contexts, "record outside the
+terminal", full state restore, the tree option and the node limits.
+
+The server plugin has a config of its own, `<instance>/Undo.cfg`, a Magnetar PluginSdk
+config (`UndoServerConfig`), so Quasar can show and edit it:
+
+| Option | Default | Notes |
+|---|---|---|
+| Max nodes: Build, Terminal | 200 | Upper limits of what a client asks for |
+| Persist in the world save | on | `UndoPlayers.xml.gz`, section 8 |
+| Grid store budget per player MB | 256 | Section 9 retention, per served player |
+| Grid store budget total MB | 4096 | All players of all worlds under the store folder |
+| Group link type for snapshots | Logical | As on the client |
+| Store folder | `<instance>/Undo` | Root of the grid store and of the status file |
+| Pending operation timeout s, Paint stroke timeout ms, Text coalescing window ms | 5, 300, 500 | As on the client |
+| Debug status file | off | Writes `status-players.json` into the store folder after every change, for the tests: every served player's histories, last answer and connection |
+| Log level | Info | In the server's log |
+
+The server never raises its budgets: a backup larger than a budget is dropped.
+
 ## 12. Code structure
 
+The layout of `server-plugin-template`: two plugin projects and a shared folder both
+compile. Pulsar compiles `ClientPlugin` and `Shared` from source, Magnetar compiles
+`ServerPlugin` and `Shared`; both build for `net48` and `net10.0`.
+
 ```
-ClientPlugin/
-  Plugin.cs                 IPlugin: Harmony PatchAll, config change hook, per frame update
-  Config.cs                 options above
-  Feedback.cs               log with the configured level, HUD notifications
-  Session/                  UndoSession (MySessionComponentBase): per world state, the
-                            Active check of section 2, loading the document, the save
-                            snapshot, debug status file. WorldSavePatches: the write
+Shared/                     both plugins: everything that runs where the server is
+  Options.cs, PlayerOptions IUndoOptions, the config the shared code reads; the
+                            options that belong to a player
+  Feedback.cs               log with the configured level, Notify for the current actor
+  Session/                  Actor: whose history the code works on (the local player,
+                            or a served player), Actors; WorldSavePatches: the write
                             into the save's staging folder
   History/                  Node, UndoHistory (tree, node cap, pending lock), Op base,
                             GridRegistry, Replay (the re-entrancy flag)
   Ops/                      one file per op kind: BuildBlocks, RazeBlocks, RestoreBlocks,
                             MergeBack, Paint; GridOps holds PasteGrids, GroupSnapshot and
-                            CloseGrids; TerminalOps holds SetProperty, SetGridName and
-                            SetProgram, TerminalValues reads and writes control values
-                            as text. Also BlockLinks (section 7), SplitWatch,
-                            GameAccess (grid handles, builder XML, placements). A paste
-                            into a grid replays as RestoreBlocks
-  Record/                   BuildContextPatches, GridContextPatches and
-                            TerminalContextPatches, the Recorder, the captures that
+                            CloseGrids; TerminalOps holds SetProperty, SetGridName,
+                            SetProgram and SetCustomData, ToolbarOps the toolbar slot,
+                            TerminalValues reads and writes control values as text.
+                            Also BlockLinks (section 7), SplitWatch, GameAccess (grid
+                            handles, builder XML, placements, requests run as a player's)
+  Record/                   the Recorder and its per actor Recording, the captures that
                             settle over frames (RazeCapture, GridCaptures), PaintStroke
-                            and TerminalStroke
+                            and TerminalStroke, the color change attribution
   Apply/                    Executor (also collects the ops' remarks for the notification),
                             Permissions: session mode and the predicates of section 2
+  Storage/                  UndoDocument and its serializer, StatusFile, Gz; no game
+                            references
+  GridStore/                GridStoreFolder (entry files, index, hashing, staged entries),
+                            StoreRetention (budgets and cleanup), both without game
+                            references; StoredGroups (the game side, the oversized question)
+  Companion/                section 14: Protocol and RequestLimiter (no game references),
+                            CompanionServer (handshake, steps, backups, the served
+                            histories in the save), ServedRecordPatches (the record hooks
+                            on the server's request handlers)
+ClientPlugin/
+  Plugin.cs                 IPlugin: Harmony PatchAll, config change hook, per frame update
+  Config.cs                 options of section 11
+  Session/                  UndoSession (MySessionComponentBase): the local player's
+                            actor, the Active check of section 2, loading and saving the
+                            document, debug status file
+  Companion/                CompanionClient: the handshake, steps, the server's answers
+  Record/                   BuildContextPatches, GridContextPatches and
+                            TerminalContextPatches: the local player's record hooks
   Input/                    key handlers of the build and terminal contexts, IsControl
                             rewrite
   Text/                     TextHistory (snapshots, no game references) and
                             TextHistories, the text box patches with one history per box
-  Storage/                  UndoDocument and its serializer, StatusFile, Gz; no game
-                            references
-  GridStore/                GridStoreFolder (entry files, index, hashing, staged entries),
-                            StoreRetention (budgets and cleanup), SortKeys (the dialog's
-                            sort history), all three without game references;
-                            StoredGroups (the game side, the oversized question)
+  GridStore/SortKeys.cs     the dialog's sort history, no game references
   Gui/                      GridHistoryScreen
   Settings/                 template config dialog, plus a Note element for the option notes
-UndoTests/                  xunit tests of History, Storage, the game free GridStore files and TextHistory, compiled
-                            from the plugin sources, no game needed (`dotnet test UndoTests`)
+ServerPlugin/               Plugin (Magnetar IPlugin: config, patches, frame loop),
+                            UndoServerConfig (section 11)
+UndoTests/                  xunit tests of History, Storage, the game free GridStore files,
+                            TextHistory and the companion protocol, compiled from the
+                            plugin sources, no game needed (`dotnet test UndoTests`)
 tests/                      pytest suite and the isolated client rig, section 13; tests/ds
                             the dedicated server rig and its tests, run on their own
 ```
@@ -771,7 +835,9 @@ The history class is `UndoHistory`, since a class named like its `History` names
 would shadow it everywhere else; `GridStoreFolder` is named that way for the same reason.
 
 Ops are data, not behavior, except for `Apply` and `Validate`. The recorder never
-calls game mutation methods and the executor never records. Anything that talks to
+calls game mutation methods and the executor never records. Both work for
+`Actor.Current`, which is the local player unless a served player's request or step
+is being handled. Anything that talks to
 the game is behind the Ops and the Record patches so the History and Storage code is
 testable without the game.
 
@@ -842,7 +908,8 @@ Coverage, one test per row, each followed by redo where it applies:
 | Save As | `POST /v1/game/save` with a name; then from the title menu: Load Game, Save As | both new world folders have the file |
 | Backup restore by the game | title menu, Load Game, Backups, a backup whose history differs from the current one, Load | the world folder has that backup's file, the loaded history matches it |
 | Permissions | survival copy of the world, the character out of the cryo chamber: build a block and Ctrl-Z with creative tools off; with `settings/admin-flag` creative tools on raze a light, switch them off, Ctrl-Z and Ctrl-H, switch them on, Ctrl-Z. Paste with the tools on, Ctrl-Z with them off, then on | the build not recorded and no reaction to Ctrl-Z; while the tools are off the light stays gone, Ctrl-Z switches the relative dampeners and Ctrl-H opens no dialog; with them on it comes back under its old id with its name; the pasted grid stays while the tools are off, then goes |
-| Dedicated server client | Magnetar DS with DirectTransport and one client (`notes/game-test-instance-modes`, mode A), survival world, the client its administrator with creative tools: raze a light, Ctrl-Z, Ctrl-H | "Session mode: ServerClient" and "Not the host, undo is off in this world" in the client log; Ctrl-Z switches the relative dampeners, Ctrl-H opens no dialog, the light stays gone, nothing written under the plugin's storage folder |
+| Dedicated server without the companion | Magnetar DS with DirectTransport and one client (`notes/game-test-instance-modes`, mode A), survival world, the client its administrator with creative tools: raze a light, Ctrl-Z, Ctrl-H | "Session mode: ServerClient" and "The server does not run the Undo companion, undo is off in this world" in the client log; Ctrl-Z switches the relative dampeners, Ctrl-H opens no dialog, the light stays gone, nothing written under the plugin's storage folder |
+| Dedicated server with the companion | the same server with the companion and two clients, the first its administrator with creative tools, the second a regular player; see section 14 for what runs where | the rows below |
 
 The dated run records that follow are kept as they were written. Since 0.1.1 the
 client paths and the survival rules without creative tools they mention are gone
@@ -975,19 +1042,132 @@ color (the cube builder tests paint by hand with a chosen one), no host lobby en
 header clicks (SE1-0072) and the save browser's selection (SE1-0073) have workarounds
 in the tests.
 
-## 14. Follow up tickets
+The companion rows followed on 2026-10-07 (SE1-0082), `tests/ds/test_companion.py`,
+on a fresh server per test file. The histories come from the companion's status file,
+`status-players.json`; terminal steps and the requests no client plugin would send go
+to the server as raw companion messages through Remote's `POST /v1/game/mod-message`:
 
-Since 0.1.1 the plugin is off on clients, so the server companion below has nothing
-to serve until client support comes back.
+| Area | Drive | Verify |
+|---|---|---|
+| Handshake | the client joins | "The server runs the Undo companion, protocol 1" in the client log, "Serving undo to" with its Steam id in the server's |
+| Build, raze, referenced block, split, paint | the offline rows' drives, from the first client | the node on the server, Ctrl-Z and Ctrl-Y on the client; the block back under its entity id with its name, the split part merged back with its block ids |
+| Paste, delete | Remote's blueprint paste and `grid_close`, which send the client's requests | the store row in the player's folder on the server; the grid back under its id with every cell |
+| Terminal property, block name | the character in front of the light (the server takes a client's synced value only from within reach), `property` and `custom_name` set ops; a terminal step message | the node in the terminal history, the value and the name back |
+| Grid history dialog | Ctrl-H | the client's status lists the server's rows of the paste and the delete |
+| Ownership | a terminal change of the first client, then the light given to the second client | the terminal step is refused with "the block belongs to someone else"; after the light is back it works |
+| Replication | the first client removes a light and a bridge and undoes both | the second client sees the light back under its id and one grid again |
+| Regular player | the second client in survival without creative tools | no node for it, Ctrl-Z is the relative dampeners |
+| Untrusted requests | from the second client: a step message, one of 2003 bytes, 40 steps in a row | "needs creative tools"; "Dropped a message of 2003 bytes" in the server log; "too many requests", and a step goes through again three seconds later |
+| Persistence | a removal, then the server stopped (it saves) and started again on its world, the client joining again | `UndoPlayers.xml.gz` in the save; the step is still there and its undo brings the light back under its id |
 
-- Remote plugin endpoints for the Undo tests: paint with a given color and skin,
-  host an offline lobby.
-- Optional server companion (Magnetar plugin): expose the id preserving restore
-  paths of section 7 to clients (single block from builder, live merge of a split
-  piece, grid re-creation without remap) so block associations survive undo on
-  dedicated servers, and report paste result ids so DS clients don't rely on the
-  `OnEntityAdd` matching heuristic. Everything else works client only, so this is not
-  required for the first release.
+## 14. Server companion
+
+Added in 0.2.0 (SE1-0082). A Magnetar plugin from the same repo gives the clients of a
+dedicated server the same undo as offline, for players with creative tools or in a
+creative world. The server records what its players do and replays their steps,
+where the id preserving entry points of section 1 exist; the results reach every
+client through the game.
+
+### Who records and decides
+
+The history lives on the server, and the server records it. A client could only
+record what it asks for, not what came of it (ids, split pieces, pasted grids), and
+nothing it sends can be trusted. So the client plugin sends no ops and no block
+builders at all. It asks for a step, an undo or redo in the build or the terminal
+context, and the server checks it for the player who asked and applies it. This also
+did away with the paste matching and the "unknown result" cases of 0.1.0.
+
+The shared code works for an actor (`Shared/Session/Actor.cs`): the local player where
+the plugin is the host, or a player the companion serves. `Actor.Current` is the local
+player unless a served player's request or step is being handled. The actor carries
+the player's Steam id, identity and character for the requests, the document, the
+recording state (captures settling, strokes being coalesced), the grid store folder,
+and where the answers go: the HUD, or a message to the player's client. The ops and
+the predicates of section 2 use it in place of the local player.
+
+Replays on the server call the request handlers as the player's own request, invoked
+locally (`GameAccess.AsRequestOf`): the handlers then take the player's identity for
+ownership and skin checks and answer failures to the player, and skip the creative
+rights checks, which the step passed already. A request the server raises for itself
+would instead check the server's own rights: `BuildBlocks` would build construction
+sites, since a dedicated server never has creative tools, and a close request would
+fail the ownership check.
+
+### Recording on the server
+
+`Shared/Companion/ServedRecordPatches.cs` hooks the server's request handlers, which run
+with the sending player in the event context, and makes that player the current actor
+while they run. Only players who did the handshake are recorded, and only with
+creative tools (the same `CanRecord` as for the local player):
+
+| Player action | Request handler |
+|---|---|
+| Place blocks, a line or plane | `BuildBlocksRequest`, `BuildBlocksAreaRequest` |
+| Remove blocks | `RazeBlocksRequest`, `RazeBlocksAreaRequest` |
+| Paste grids | `TryPasteGrid_Implementation`, with the same completion callback as on a host |
+| Delete grids | `OnGridClosedRequest`; a group delete arrives as one request per grid, and the requests of one player in one frame become one node |
+| Paste into a grid | `PasteBlocksToGridServer_Implementation` |
+| A block into empty space | `MyCubeBuilder.AfterGridBuild`, which names the sender |
+| Paint and skin | `ColorBlockRequest`, `ColorGridFriendlyRequest`, `SkinBlockRequest`, `SkinGridFriendlyRequest` open the stroke; the color change attribution is shared with the client |
+| Terminal property | `MyPropertySyncStateGroup.SyncPropertyChanged_Implementation`: a client's change arrives as a synced value, so the values of the block's terminal controls are read before and after, and each control that changed is recorded |
+| Block name, Custom Data, grid name, program, block toolbar slot | `SetCustomNameEvent`, `OnCustomDataChanged`, `OnChangeDisplayNameRequest`, `UpdateProgram`, and `MyToolbar.SetItemAtIndex` inside a block's toolbar request |
+
+Terminal changes count while the client says its terminal is open, or always when the
+player's "record outside the terminal" option is on, the same rule as on a host.
+
+### Handshake and messages
+
+Mod messages on channel 48771 through `MyAPIGateway.Multiplayer`
+(`Shared/Companion/Protocol.cs`). The secure handler gives the server the sender's
+Steam id from the network, so a client cannot speak for someone else. The open point
+of SE1-0061 and SE1-0082 was mod messages or a Magnetar plugin event: mod messages,
+because a lobby host runs the same server side without Magnetar, and both sides have
+the mod API.
+
+| Message | From | Content |
+|---|---|---|
+| Hello | client | protocol version, the player's options (section 11) |
+| Welcome | server | accepted or not, and why |
+| Step | client | context, undo or redo |
+| Notice | server | the step's answer for the HUD: "Undo: ...", "Undo not available: ..." |
+| State | server | whether the build history has nothing to undo |
+| Terminal | client | the terminal screen opened or closed |
+| Backups, Fetch, Part, Delete | both | the grid history dialog's rows, a backup file in parts of 60000 bytes, a removal |
+
+The client sends Hello when a session starts where it is not the server, and again
+when the player changes the options (at most once a second). Without a Welcome within
+15 seconds, or with a refusal (another protocol version), undo stays off on the client
+as before. With it, the keys of the build and terminal contexts send steps. Ctrl-Z in
+gameplay goes to the game while the server says there is nothing to undo, as on a
+host. The text context stays on the client; it changes nothing in the world.
+
+### Limits
+
+The server drops a message over 1024 bytes unread; no message a client plugin sends
+comes near it. Each player has a token bucket of 20 that fills by 10 per second; a
+step costs 1, a handshake or the dialog's rows 5, a backup file 10. Requests that find
+the bucket empty are dropped and answered with "Undo not available: too many
+requests, wait a moment", at most once a second. A step from a player without creative tools is refused with "needs creative
+tools". Every op's predicate runs against the player's identity and the world as it
+is when the step arrives.
+
+### History and grid store on the server
+
+The served players' histories are saved with the world, in `UndoPlayers.xml.gz`
+(`ServedHistories`, one `UndoDocument` per Steam id), so they follow the server's
+backups and come back after a restart. A player who reconnects gets their history
+back. The node limits and the tree option come from the player's Hello, the limits
+capped by the server's config. The grid store is per player under the server's
+storage root (section 9), with a budget per player and one for all of them.
+
+### Lobby games
+
+A host running the client plugin serves the players who joined it the same way: the
+same `CompanionServer` and record hooks run in the client plugin where it is a server
+with clients. A joined player with Undo then has full undo, under the host's rules
+and with their history in the host's world. This was the other open point of SE1-0082.
+
+Not run in game yet: the lobby host serving a joined player (SE1-0098).
 
 ## 15. Risks and open points
 
@@ -1028,8 +1208,8 @@ to serve until client support comes back.
   gets the hooks more than once; the depth counter of section 5 keeps that to one
   recorded change per call.
 - R2, moot since 0.1.1, the client paste matching is gone. It was: paste correlation
-  on DS clients is a heuristic (section 6). Acceptable for the stated use case; the
-  companion ticket removes it.
+  on DS clients is a heuristic (section 6). The companion records pastes on the
+  server, where the paste's own callback has the grids.
 - R3, moot since 0.1.1, the plugin is off in survival without creative tools. It was:
   `RazeBlocks` reverse in survival without creative tools only rebuilds skeleton
   blocks. Documented in the notification text ("restored as construction sites"),
@@ -1068,6 +1248,17 @@ to serve until client support comes back.
   along would multiply the store with every Save As, which is what the key avoids.
   Looking the entry up in the other world folders of the same world id would fix it
   if it turns out to matter.
+
+- R9, the companion tells a served player's terminal change apart by reading every
+  value control of the block before and after each synced property the player sends,
+  about 40 reads for a turret controller, per sync event. A slider dragged on a
+  client sends a few per second. A value the server does not take (the player out of
+  reach of the block, or failing its validation) leaves the values as they were and
+  records nothing, which is right.
+- R10, the companion's hooks run inside the server's request handlers, and the
+  server disconnects a player whose packet throws. Found on 2026-10-07: a faulty debug
+  line in the property hook kicked the test client. Every hook body catches and logs
+  its own exceptions now; a failed hook records nothing.
 
 ## 16. Implementation order
 

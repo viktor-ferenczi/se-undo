@@ -261,6 +261,7 @@
     <DoNotPublicize Include="Sandbox.Game:Sandbox.Game.Entities.MyCubeGrid.OnGridSplit" />
     <DoNotPublicize Include="Sandbox.Game:Sandbox.Game.World.MySession.OnSavingCheckpoint" />
     <DoNotPublicize Include="Sandbox.Game:Sandbox.Game.World.MySession.OnUnloading" />
+    <DoNotPublicize Include="Sandbox.Game:Sandbox.Engine.Multiplayer.MyMultiplayerBase.ClientLeft" />
   </ItemGroup>
   <Target Name="ValidateProps" BeforeTargets="PrepareForBuild">
     <Error
@@ -341,4 +342,6 @@
       Text="Deployed the $(TargetFramework) build to &quot;$(PluginDirectory)&quot;"
     />
   </Target>
+
+  <Import Project="..\Shared\Shared.projitems" Label="Shared" />
 </Project>

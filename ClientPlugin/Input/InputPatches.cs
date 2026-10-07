@@ -1,6 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
-using ClientPlugin.Apply;
-using ClientPlugin.History;
+using ClientPlugin.Companion;
 using ClientPlugin.Session;
 using ClientPlugin.Text;
 using HarmonyLib;
@@ -8,6 +7,10 @@ using Sandbox.Engine;
 using Sandbox.Game;
 using Sandbox.Game.Gui;
 using Sandbox.Graphics.GUI;
+using Shared.Apply;
+using Shared.Companion;
+using Shared.History;
+using Shared.Session;
 using VRage.Input;
 using VRage.Utils;
 
@@ -24,31 +27,43 @@ public static class InputPatches
     private static MyKeys consumedKey = MyKeys.None;
     private static MyStringId? replacedControl;
 
-    // Returns the key of the binding it acted on, or None.
+    // Returns the key of the binding it acted on, or None. On a client of a server
+    // the step goes to the server's companion, which keeps the history.
     // In gameplay the undo key is left to the game while there is nothing to undo:
     // a player who is flying and not editing gets the vanilla action of the key,
     // relative dampeners on Ctrl-Z.
-    private static MyKeys HandleUndoRedo(
-        UndoHistory history,
-        GridRegistry grids,
-        bool leaveIdleUndoToTheGame = false
-    )
+    private static MyKeys HandleUndoRedo(StepContext context, bool leaveIdleUndoToTheGame = false)
     {
         var input = MyInput.Static;
         var config = Config.Current;
+        var document = UndoSession.Document;
+        var history = context == StepContext.Build ? document?.Build : document?.Terminal;
         if (config.UndoBinding.HasPressed(input))
         {
-            if (leaveIdleUndoToTheGame && Executor.NothingToUndo(history))
+            if (leaveIdleUndoToTheGame && NothingToUndo(history))
                 return MyKeys.None;
-            Executor.Undo(history, grids);
+            Step(context, history, undo: true);
             return config.UndoBinding.Key;
         }
         if (config.RedoBinding.HasPressed(input))
         {
-            Executor.Redo(history, grids);
+            Step(context, history, undo: false);
             return config.RedoBinding.Key;
         }
         return MyKeys.None;
+    }
+
+    private static bool NothingToUndo(UndoHistory history) =>
+        history == null ? CompanionClient.BuildIdle : Executor.NothingToUndo(history);
+
+    private static void Step(StepContext context, UndoHistory history, bool undo)
+    {
+        if (history == null)
+            CompanionClient.Step(context, undo);
+        else if (undo)
+            Executor.Undo(history, UndoSession.Document.Grids);
+        else
+            Executor.Redo(history, UndoSession.Document.Grids);
     }
 
     [HarmonyPatch(typeof(MyGuiScreenGamePlay), nameof(MyGuiScreenGamePlay.HandleUnhandledInput))]
@@ -56,7 +71,6 @@ public static class InputPatches
     {
         private static void Prefix()
         {
-            var document = UndoSession.Document;
             var config = Config.Current;
             if (
                 !UndoSession.Active
@@ -65,7 +79,7 @@ public static class InputPatches
             )
                 return;
 
-            consumedKey = HandleUndoRedo(document.Build, document.Grids, true);
+            consumedKey = HandleUndoRedo(StepContext.Build, true);
             if (consumedKey != MyKeys.None)
                 return;
 
@@ -159,7 +173,6 @@ public static class InputPatches
             // plugin's text history in a single line box, the vanilla undo in a
             // multi line one. The terminal history takes them once focus is elsewhere,
             // or also from a single line box when the separate text undo option is off.
-            var document = UndoSession.Document;
             if (
                 !UndoSession.Active
                 || !Config.Current.EnableTerminalContext
@@ -169,7 +182,7 @@ public static class InputPatches
             )
                 return;
 
-            HandleUndoRedo(document.Terminal, document.Grids);
+            HandleUndoRedo(StepContext.Terminal);
         }
     }
 }

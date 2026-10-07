@@ -1,9 +1,9 @@
 using System;
 using System.IO;
 using System.Linq;
-using ClientPlugin.GridStore;
-using ClientPlugin.History;
-using ClientPlugin.Storage;
+using Shared.GridStore;
+using Shared.History;
+using Shared.Storage;
 using Xunit;
 
 namespace UndoTests;

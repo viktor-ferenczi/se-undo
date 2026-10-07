@@ -8,12 +8,15 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="../ClientPlugin/History/*.cs" LinkBase="History" />
-    <Compile Include="../ClientPlugin/Storage/*.cs" LinkBase="Storage" />
-    <Compile Include="../ClientPlugin/GridStore/GridStoreFolder.cs" LinkBase="GridStore" />
-    <Compile Include="../ClientPlugin/GridStore/StoreRetention.cs" LinkBase="GridStore" />
+    <Compile Include="../Shared/History/*.cs" LinkBase="History" />
+    <Compile Include="../Shared/Storage/*.cs" LinkBase="Storage" />
+    <Compile Include="../Shared/GridStore/GridStoreFolder.cs" LinkBase="GridStore" />
+    <Compile Include="../Shared/GridStore/StoreRetention.cs" LinkBase="GridStore" />
     <Compile Include="../ClientPlugin/GridStore/SortKeys.cs" LinkBase="GridStore" />
     <Compile Include="../ClientPlugin/Text/TextHistory.cs" LinkBase="Text" />
+    <Compile Include="../Shared/PlayerOptions.cs" />
+    <Compile Include="../Shared/Companion/Protocol.cs" LinkBase="Companion" />
+    <Compile Include="../Shared/Companion/RequestLimiter.cs" LinkBase="Companion" />
   </ItemGroup>
 
   <ItemGroup>

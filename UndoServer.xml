@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<PluginData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="GitHubPlugin">
+    <Id>AC284074-A676-4930-B47A-F30450988608</Id>
+    <RepoId>viktor-ferenczi/se-undo</RepoId>
+
+    <FriendlyName>Undo</FriendlyName>
+    <Author>Viktor</Author>
+
+    <Tooltip>Server companion of the Undo client plugin: undo and redo for the players of a dedicated server.</Tooltip>
+    <Description>
+        Undo and redo for the players of a dedicated server, as in single player.
+
+        Players need the Undo client plugin from PluginHub. The server records what
+        they build, remove, paste, delete, paint and change in the terminal, keeps
+        each player's history in the world save and replays Ctrl-Z / Ctrl-Y here,
+        where removed blocks and deleted grids come back under their old ids with
+        their settings, inventory and links. Clients only ask for steps; every
+        check runs on the server.
+
+        Only for players with creative tools enabled, or in a creative world.
+
+        The grid history (Ctrl-H) lists each player's backed up grids from the
+        server's grid store, with a budget per player and for all players.
+
+        Please see the full documentation on GitHub:
+        https://github.com/viktor-ferenczi/se-undo
+
+        For support please join the Pulsar Discord: https://discord.gg/z8ZczP2YZY
+    </Description>
+
+    <SourceDirectories>
+        <Directory>ServerPlugin</Directory>
+        <Directory>Shared</Directory>
+    </SourceDirectories>
+
+    <Commit>TODO</Commit>
+
+</PluginData>

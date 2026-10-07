@@ -1,10 +1,12 @@
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
-using ClientPlugin.Ops;
 using HarmonyLib;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Cube;
+using Shared.Companion;
+using Shared.Ops;
+using Shared.Record;
 using VRage.Game;
 using VRage.Utils;
 using VRageMath;
@@ -76,30 +78,7 @@ public static class BuildContextPatches
             out List<BlockPlacement> __state
         )
         {
-            __state = null;
-            if (!Recorder.CanRecord)
-                return;
-
-            var definition = ((MyDefinitionId)area.DefinitionId).ToString();
-            Vector3I step = area.StepDelta;
-            Vector3I blockMin = area.BlockMin;
-            __state = new List<BlockPlacement>();
-            for (var x = 0; x < area.BuildAreaSize.X; x++)
-            for (var y = 0; y < area.BuildAreaSize.Y; y++)
-            for (var z = 0; z < area.BuildAreaSize.Z; z++)
-            {
-                var min = area.PosInGrid + new Vector3I(x, y, z) * step + blockMin;
-                if (__instance.GetCubeBlock(min) == null)
-                    __state.Add(
-                        new BlockPlacement
-                        {
-                            Definition = definition,
-                            Min = min,
-                            Forward = area.OrientationForward,
-                            Up = area.OrientationUp,
-                        }
-                    );
-            }
+            __state = Recorder.CanRecord ? ServedRecordPatches.Placements(__instance, area) : null;
         }
 
         private static void Postfix(
@@ -156,7 +135,7 @@ public static class BuildContextPatches
         private static void Prefix(MyCubeGrid __instance, ref Vector3I pos, ref Vector3UByte size)
         {
             if (Recorder.CanRecord)
-                Recorder.BeginRaze(__instance, Area(pos, size));
+                Recorder.BeginRaze(__instance, ServedRecordPatches.Area(pos, size));
         }
     }
 
@@ -168,7 +147,7 @@ public static class BuildContextPatches
         private static void Prefix(MyCubeGrid __instance, ref Vector3I pos, ref Vector3UByte size)
         {
             if (Recorder.CanRecord)
-                Recorder.BeginRaze(__instance, Area(pos, size));
+                Recorder.BeginRaze(__instance, ServedRecordPatches.Area(pos, size));
         }
     }
 
@@ -179,17 +158,8 @@ public static class BuildContextPatches
         {
             var batch = __instance.m_delayedRazeBatch;
             if (Recorder.CanRecord && __instance.m_isRazeBatchDelayed && !__instance.Closed)
-                Recorder.BeginRaze(__instance, Area(batch.Pos, batch.Size));
+                Recorder.BeginRaze(__instance, ServedRecordPatches.Area(batch.Pos, batch.Size));
         }
-    }
-
-    // Same iteration as RazeBlocksAreaRequest, the size is inclusive
-    private static IEnumerable<Vector3I> Area(Vector3I pos, Vector3UByte size)
-    {
-        for (var x = 0; x <= size.X; x++)
-        for (var y = 0; y <= size.Y; y++)
-        for (var z = 0; z <= size.Z; z++)
-            yield return pos + new Vector3I(x, y, z);
     }
 
     // Local paint entry points open a stroke; the color changes that follow on this
@@ -209,30 +179,6 @@ public static class BuildContextPatches
         {
             if (Recorder.CanRecord)
                 Recorder.OpenStroke(__instance);
-        }
-    }
-
-    [HarmonyPatch(typeof(MyCubeGrid), nameof(MyCubeGrid.ChangeColorAndSkin))]
-    private static class ChangeColorAndSkinPatch
-    {
-        private static void Prefix(
-            MyCubeGrid __instance,
-            MySlimBlock block,
-            out (Vector3 color, MyStringHash skin) __state
-        )
-        {
-            __state = (block.ColorMaskHSV, block.SkinSubtypeId);
-        }
-
-        private static void Postfix(
-            MyCubeGrid __instance,
-            MySlimBlock block,
-            bool __result,
-            (Vector3 color, MyStringHash skin) __state
-        )
-        {
-            if (__result)
-                Recorder.StrokeFor(__instance)?.Record(block, __state.color, __state.skin);
         }
     }
 }
