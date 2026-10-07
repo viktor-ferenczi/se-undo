@@ -24,6 +24,8 @@ class Game:
         self.undo_key = ("Z", ["LeftControl"])
         self.redo_key = ("Y", ["LeftControl"])
         self.station = self.grid_named(rig.STATION_NAME)["entityId"]
+        # The world folder the client saves into, for saved_grid
+        self.world = rig.WORLD
 
     # --- world state ---------------------------------------------------------
 
@@ -134,10 +136,19 @@ class Game:
         before = self.status()
         marker = self.status_file.stat().st_mtime_ns
         self.api.key(key, modifiers)
-        wait_until(
-            lambda: self.status_file.stat().st_mtime_ns != marker,
-            f"reaction to {'+'.join(modifiers + [key])}",
-        )
+
+        # On a served client other writes can come first, like the server's
+        # "nothing to undo" state after a step was recorded
+        def answered() -> bool:
+            if self.status_file.stat().st_mtime_ns == marker:
+                return False
+            return expect is None or self.last_message().startswith(expect)
+
+        try:
+            wait_until(answered, f"reaction to {'+'.join(modifiers + [key])}")
+        except AssertionError:
+            if self.status_file.stat().st_mtime_ns == marker:
+                raise
         message = self.last_message()
         if expect is not None:
             assert message.startswith(
@@ -335,7 +346,7 @@ class Game:
 
     def saved_grid(self, grid: int) -> ET.Element:
         """Saves the world and returns a grid's element from the sector file"""
-        sector = rig.WORLD / "SANDBOX_0_0_0_.sbs"
+        sector = self.world / "SANDBOX_0_0_0_.sbs"
         before = sector.stat().st_mtime_ns
 
         def started() -> bool:

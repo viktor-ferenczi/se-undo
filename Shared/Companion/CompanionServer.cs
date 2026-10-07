@@ -194,6 +194,7 @@ public static class CompanionServer
     {
         connected.Remove(steamId);
         sentIdle.Remove(steamId);
+        WriteStatus();
     }
 
     private static void Send(ulong steamId, byte[] message)

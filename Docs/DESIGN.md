@@ -1060,6 +1060,45 @@ to the server as raw companion messages through Remote's `POST /v1/game/mod-mess
 | Untrusted requests | from the second client: a step message, one of 2003 bytes, 40 steps in a row | "needs creative tools"; "Dropped a message of 2003 bytes" in the server log; "too many requests", and a step goes through again three seconds later |
 | Persistence | a removal, then the server stopped (it saves) and started again on its world, the client joining again | `UndoPlayers.xml.gz` in the save; the step is still there and its undo brings the light back under its id |
 
+SE1-0098 ran every mode on Linux on 2026-10-07: the offline suite, the dedicated
+server suite and the lobby suite on .NET 10, and the offline files under Proton. The
+lobby rows, `tests/lobby/test_lobby.py`, with a host and a joined client that both
+run Undo:
+
+| Area | Drive | Verify |
+|---|---|---|
+| Handshake | the client joins the host's friends game | "Session mode: LobbyHost" and "Serving undo to" with the joined player's Steam id on the host; "Session mode: LobbyClient" and the companion found on the joined client |
+| The host's steps | the host builds a battery, removes the referenced light, removes the bridge, pastes and deletes a grid; undo and redo | on the joined client: the battery back under its id after the redo, the light under its id with its name and back in its block group, one grid again with the part's ids, the grid back under its id |
+| The host's program | two programs set through the mod API on the host, undo and redo in the host's terminal | the joined client gets the program of each undo and redo. A program set through the mod API on a host reaches no client, the program request of the undo does; going back to no program leaves the clients with the last one |
+| The joined player's steps | build, raze, split, paste and delete, a terminal change, Ctrl-H, the drives of the dedicated server rows | the host's world after each step, the block details and ids, the merged part, the rows of the dialog from the host |
+
+More dedicated server rows, `tests/ds/test_companion_more.py` and, for the last row,
+`tests/ds/test_client_without_undo.py`:
+
+| Area | Drive | Verify |
+|---|---|---|
+| Terminal screen | the turret controller's terminal opened on the client, a slider set three times, Ctrl-Z and Ctrl-Y in the terminal | one node on the server, the value back and forth |
+| Program, block toolbar | two programs set from the client; a slot of the cockpit's toolbar cleared in the toolbar screen | recorded on the server, undone and redone by terminal steps |
+| Grid name | a grid with a battery pasted next to the character and renamed. The game takes a client's rename only from within 15 m of the grid | "renamed grid", undo and redo |
+| Paste into a grid, new grid | Ctrl-C on the copy source, Ctrl-V onto its face, a click; the cube builder aimed into empty air | the 9 merged cells; the new grid under its id after the redo |
+| Rotor base | a rotor built on the station with an armor block on its head, its base removed; undo, redo, undo | base, head and block back under their ids; the station goes and comes back on the client (R11) |
+| Block group | the referenced light removed and restored | back in its group on the client, through Remote's `block_groups` get op |
+| Refusals | the character in the removed light's cell; the second client deletes a grid the first one changed | "something is in the way", the step stays and works once the cell is free; "the grid no longer exists" |
+| Grid history dialog | Paste and Delete in the dialog | the backup fetched from the server and placed with a click; the row gone |
+| Autosave | the world saves itself every minute | `UndoPlayers.xml.gz` written again, with the player's last step |
+| Client without Undo | the second client joins without the plugin | nothing recorded for it, its build reaches the first client |
+
+Under Proton, Pulsar Legacy on Wine Mono compiled the client plugin and `Shared` without
+errors, the first `net48` compile of 0.2.0. The build, grid, cube builder, terminal,
+grid store, world save and load edge case files passed there, except the title menu's
+Save As, which cannot pick the test world in the Steam profile's save list. The
+DirectTransport client is CoreCLR only, so a Proton client cannot join the rigs'
+servers; the multiplayer rows ran on .NET 10 only.
+
+Still not driven anywhere: skins (no test client owns any), "restored with changes"
+(no test client owns DLC blocks), Pulsar Legacy and Magnetar Legacy on .NET Framework
+itself (Windows).
+
 ## 14. Server companion
 
 Added in 0.2.0 (SE1-0082). A Magnetar plugin from the same repo gives the clients of a
@@ -1167,7 +1206,7 @@ same `CompanionServer` and record hooks run in the client plugin where it is a s
 with clients. A joined player with Undo then has full undo, under the host's rules
 and with their history in the host's world. This was the other open point of SE1-0082.
 
-Not run in game yet: the lobby host serving a joined player (SE1-0098).
+Run in game on 2026-10-07 (SE1-0098), see the lobby rows of section 13.
 
 ## 15. Risks and open points
 
@@ -1178,7 +1217,10 @@ Not run in game yet: the lobby host serving a joined player (SE1-0098).
   methods. `TerminalContextPatches.PatchControls` replaces the `Setter` delegate of
   every value control with one that records around the original; every `SetValue`
   ends in that delegate. A weak table keeps track of the wrapped controls, the scan
-  runs at the same moments as before. The rest of this entry is history.
+  runs at the same moments as before. Under Proton (Pulsar Legacy on Wine Mono,
+  2026-10-07) the same 244 setters of 827 value controls were wrapped as on .NET 10,
+  and every terminal change made one node, the endurance test's included. Not run on
+  .NET Framework itself (Windows). The rest of this entry is history.
 - R1 as first closed on 2026-10-01, confirmed in game on .NET 10 (Pulsar Interim, Linux).
   `MyTerminalValueControl<TBlock, TValue>.SetValue` is patched per closed type, and
   `TBlock` is always a reference type, so the runtime shares one method body among
@@ -1259,6 +1301,11 @@ Not run in game yet: the lobby host serving a joined player (SE1-0098).
   server disconnects a player whose packet throws. Found on 2026-10-07: a faulty debug
   line in the property hook kicked the test client. Every hook body catches and logs
   its own exceptions now; a failed hook records nothing.
+- R11, undoing a removal that took a mechanical connection apart closes what is left
+  of the grid group and creates it again from the snapshot (section 7), the grid the
+  base sits on included. On the clients of a server or a lobby host that grid
+  disappears and comes back under the same ids, within about a second, a few seconds
+  on a busy machine. Found on 2026-10-07 (SE1-0098).
 
 ## 16. Implementation order
 

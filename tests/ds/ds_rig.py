@@ -32,6 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import rig  # noqa: E402
+from harness import Game  # noqa: E402
 
 HOME = Path.home()
 
@@ -136,9 +137,10 @@ def register_source(sources: Path, name: str, folder: Path, file: str) -> None:
     tree.write(sources, encoding="utf-8", xml_declaration=True)
 
 
-def prepare_world() -> None:
-    """The offline rig's test world in survival, plus the copy source"""
-    rig.prepare_world(WORLD, mode="Survival")
+def prepare_world(settings: dict | None = None) -> None:
+    """The offline rig's test world in survival, plus the copy source. settings
+    changes session settings of the world, by element name."""
+    rig.prepare_world(WORLD, mode="Survival", settings=settings)
     _, forward, up = rig.station_frame()
     source = rig._grid(
         SOURCE_NAME,
@@ -176,13 +178,15 @@ def prepare_world() -> None:
         path.write_text(text, encoding="utf-8")
 
 
-def prepare_server(admin: bool, fresh: bool = True, companion: bool = True) -> None:
+def prepare_server(
+    admin: bool, fresh: bool = True, companion: bool = True, settings=None
+) -> None:
     """Writes the server's Magnetar config and dedicated config. A fresh server
     also gets a new copy of the world and starts with an empty grid store;
     otherwise the world it saved is kept. Without the companion the server runs
     DirectTransport only."""
     if fresh:
-        prepare_world()
+        prepare_world(settings)
         shutil.rmtree(SERVER_DATA / "Undo", ignore_errors=True)
 
     # Magnetar: the plugin sources of the machine's own instance, with a profile
@@ -301,26 +305,43 @@ def stop_server(timeout: float = 120.0) -> None:
     SERVER_PID.unlink(missing_ok=True)
 
 
-def ensure_client2() -> None:
-    """Clones the first client's Pulsar folder for the second client, the way
+def clone_client(client: rig.Client) -> None:
+    """Clones the first client's Pulsar folder for another client, the way
     rig.ensure_pulsar clones client slots"""
-    if CLIENT2.launcher.exists():
+    if client.launcher.exists():
         return
     if not CLIENT.launcher.exists():
         raise RuntimeError(f"{CLIENT.launcher} is missing, see Docs/TESTING.md")
-    CLIENT2.pulsar.mkdir(parents=True)
+    client.pulsar.mkdir(parents=True)
     for entry in CLIENT.pulsar.iterdir():
-        target = CLIENT2.pulsar / entry.name
+        target = client.pulsar / entry.name
         if entry.is_symlink():
             target.symlink_to(entry.resolve())
         elif entry.is_file():
             shutil.copy2(entry, target)
-    shutil.copy2(CLIENT.launcher, CLIENT2.launcher)
+    shutil.copy2(CLIENT.launcher, client.launcher)
     shutil.copytree(
         CLIENT.pulsar / "Legacy",
-        CLIENT2.pulsar / "Legacy",
+        client.pulsar / "Legacy",
         ignore=shutil.ignore_patterns("Preloader", "info*.log"),
     )
+
+
+def launch_client(
+    client: rig.Client, args: list[str], plugins=CLIENT_PLUGINS, config=None
+) -> None:
+    """Launches a client with Remote and Undo compiled from the working copies.
+    plugins are the dev folders its profile enables."""
+    clone_client(client)
+    legacy = client.pulsar / "Legacy"
+    profile = legacy / "Profiles" / "Current.xml"
+    profile.write_text(_profile(plugins), encoding="utf-8")
+    sources = legacy / "Sources" / "sources.xml"
+    register_source(sources, "remote", rig.REMOTE_REPO, "Remote.xml")
+    register_source(sources, "se-undo", rig.REPO, "Undo.xml")
+
+    (client.appdata / "SpaceEngineers.log").unlink(missing_ok=True)
+    rig.launch(client, args, config or UNDO_CONFIG)
 
 
 def start_client(
@@ -328,23 +349,11 @@ def start_client(
     client: rig.Client = CLIENT,
     client_id: int = CLIENT_ID,
     name: str = CLIENT_NAME,
+    plugins=CLIENT_PLUGINS,
 ):
     """Starts a client, which joins on its own, and returns its API once the
     character stands in the world"""
-    if client is CLIENT2:
-        ensure_client2()
-    if not client.launcher.exists():
-        raise RuntimeError(f"{client.launcher} is missing, see Docs/TESTING.md")
-    legacy = client.pulsar / "Legacy"
-    profile = legacy / "Profiles" / "Current.xml"
-    profile.write_text(_profile(CLIENT_PLUGINS), encoding="utf-8")
-    sources = legacy / "Sources" / "sources.xml"
-    register_source(sources, "remote", rig.REMOTE_REPO, "Remote.xml")
-    register_source(sources, "se-undo", rig.REPO, "Undo.xml")
-
-    log = client.appdata / "SpaceEngineers.log"
-    log.unlink(missing_ok=True)
-    rig.launch(
+    launch_client(
         client,
         [
             "--connect",
@@ -354,11 +363,11 @@ def start_client(
             "--client-name",
             name,
         ],
-        UNDO_CONFIG,
+        plugins,
     )
     api = rig.api(client)
     api.wait_for_api(max_wait=240)
-    wait_joined(api, timeout, client)
+    wait_joined(api, timeout, client, undo=UNDO_ID in plugins)
     return api
 
 
@@ -374,9 +383,12 @@ def joined(client: rig.Client = CLIENT) -> bool:
     )
 
 
-def wait_joined(api, timeout: float = 420.0, client: rig.Client = CLIENT) -> None:
+def wait_joined(
+    api, timeout: float = 420.0, client: rig.Client = CLIENT, undo: bool = True
+) -> None:
+    """A client without Undo is only waited for until its world is ready"""
     deadline = time.monotonic() + timeout
-    while not joined(client):
+    while undo and not joined(client):
         if rig.running_pid(client) is None:
             raise RuntimeError(f"The client exited, see {client.launch_log}")
         if time.monotonic() > deadline:
@@ -413,17 +425,39 @@ def spawn(api, timeout: float = 300.0) -> None:
     raise TimeoutError("No live character")
 
 
-def server_player(steam_id: int) -> dict | None:
+def server_player(steam_id: int, status: Path = SERVER_STATUS) -> dict | None:
     """The companion's status of one player, None before its handshake"""
     for _ in range(20):
         try:
-            players = json.loads(SERVER_STATUS.read_text(encoding="utf-8"))
+            players = json.loads(status.read_text(encoding="utf-8"))
             return players["players"].get(str(steam_id))
         except FileNotFoundError:
             return None
         except ValueError:  # written while read
             continue
     raise AssertionError("status-players.json is not readable")
+
+
+class ServedGame(Game):
+    """A client of the server. The histories are the server's, from its status
+    file of the players; the last message is what the companion answered, from
+    the client's."""
+
+    def __init__(
+        self, api, client: rig.Client, steam_id: int, players: Path = SERVER_STATUS
+    ):
+        super().__init__(api, client.status_file)
+        self.steam_id = steam_id
+        self.players = players
+
+    def status(self) -> dict:
+        status = super().status()
+        player = server_player(self.steam_id, self.players)
+        status["histories"] = (player or {}).get("histories") or {
+            "build": {"nodes": [], "current": 0, "count": 0},
+            "terminal": {"nodes": [], "current": 0, "count": 0},
+        }
+        return status
 
 
 def stop_client() -> None:

@@ -8,7 +8,8 @@ headless.
 |---|---|---|
 | Unit tests: history, storage, grid store, text history, companion protocol | `dotnet test UndoTests` | seconds |
 | In game suite, offline clients | `uv run python tests/run_pieces.py` | about 6 minutes |
-| Dedicated server suite, a server per file and up to two clients | `uv run pytest tests/ds` | about 10 minutes |
+| Dedicated server suite, a server per file and up to two clients | `uv run pytest tests/ds` | about 18 minutes |
+| Lobby suite, a host and a joined client | `uv run pytest tests/lobby` | about 4 minutes |
 
 The game suites use different folders and ports and can run at the same time. A
 client in a world takes about 5.5 GB of RAM, the server about 3 GB.
@@ -86,10 +87,21 @@ administrator, creative tools on:
   an oversized message, a burst); at the end the server restarts on its saved world
   and an older step is undone. The histories come from the companion's status file,
   `status-players.json`.
+- `test_companion_more.py`, a server with it, autosaving every minute: a terminal
+  step from the client's terminal screen, a program, a block toolbar and a grid name
+  recorded on the server, a paste into a grid, a new grid from one block, a rotor base
+  with its subgrid, a block group put back, the refusals for something in the way and
+  for a grid the second client deleted, the grid history dialog's Paste and Delete,
+  and the histories in the world after an autosave.
+- `test_client_without_undo.py`, a server with it and a second client without the
+  plugin, which joins once: a client that left and joined again with the same id
+  within seconds timed out during the world download.
 
 The terminal steps and the untrusted requests go to the server as raw companion
 messages through Remote's `POST /v1/game/mod-message`, which the Remote working copy
-needs (branch `server-companion` of CometWorks/remote until it merges).
+needs (branch `server-companion` of CometWorks/remote until it merges). The block
+group checks of `test_companion_more.py` and of the lobby tests use Remote's
+`block_groups` get op, on its branch `test-matrix` until that merges.
 
 To bring the pair up by hand and drive the client through its Remote API:
 
@@ -104,9 +116,39 @@ uv run python tests/ds/ds_rig.py stop
 `UNDO_KEEP=1` leaves the server and the clients running after a test run,
 `UNDO_ATTACH=1` reuses them while iterating on one file.
 
+## Lobby rig
+
+A friends game without Steam (DirectTransport, SE1-0076): one client hosts the test
+world, a second one joins it. Both Pulsar folders are cloned from the dedicated server
+rig's client on their first start, so `~/.se-test/undo-mp` has to be set up first.
+
+| | Host | Joined client |
+|---|---|---|
+| Pulsar folder | `~/.se-test/undo-lobby-host` | `~/.se-test/undo-lobby-join` |
+| User data | `~/.se-test/undo-lobby-host-data` | `~/.se-test/undo-lobby-join-data` |
+| Remote port | 24198 | 24199 |
+| Lobby port | UDP 27131 | |
+
+The host loads a fresh creative copy of the test world offline, saves it and loads it
+again as a friends game; the joined player is an administrator in it, for the
+teleport. `tests/lobby/test_lobby.py` checks that the host's own undo and redo reach
+the joined client (blocks under their old ids, merged parts, re-created grids, block
+groups, programs), and that the host serves the joined player like the companion. The
+joined player's histories are in the host's `Undo/status-players.json`.
+
+```bash
+uv run python tests/lobby/lobby_rig.py start
+```
+
+```bash
+uv run python tests/lobby/lobby_rig.py stop
+```
+
+`UNDO_KEEP=1` and `UNDO_ATTACH=1` work as in the other rigs.
+
 ## What is not covered
 
-Hosting for friends and joining a friend's lobby have no test in this repo. The
-two-client lobby rig of `se1/notes/direct-transport-lobby-rig` in the workspace can run
-both without Steam; the full run across modes, runtimes and platforms is SE1-0098. See
-section 13 of [DESIGN.md](DESIGN.md) for what ran where.
+Pulsar Legacy and Magnetar Legacy run .NET Framework 4.8 on Windows only. The client
+plugin was run under Proton (Wine Mono) with the offline tests, see SE1-0098 in the
+workspace for that recipe and for what is left for Windows. See section 13 of
+[DESIGN.md](DESIGN.md) for what ran where.

@@ -353,6 +353,8 @@ def test_ownership_is_checked_on_the_server(game, game2):
     second client, with creative tools for this test, removes the first client's
     battery and builds its own in the cell; the step resolves to that one."""
     cell = BATTERY_CELL
+    # Within reach of the battery for the terminal change
+    game.stand_at(NEAR_LIGHT)
     last = game.last_node_id()
     assert game.api.character_build_block(game.station, cell, BATTERY)["sent"]
     game.wait_recorded(last, "placed 1 block")
