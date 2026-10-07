@@ -3,7 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
-using ClientPlugin.GridStore;
+using Shared.GridStore;
 using Xunit;
 
 namespace UndoTests;

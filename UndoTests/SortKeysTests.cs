@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using ClientPlugin.GridStore;
+using Shared.GridStore;
 using Xunit;
 
 namespace UndoTests;

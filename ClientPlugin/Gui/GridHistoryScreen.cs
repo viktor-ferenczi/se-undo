@@ -2,15 +2,20 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using ClientPlugin.Companion;
 using ClientPlugin.GridStore;
 using ClientPlugin.Session;
 using ClientPlugin.Settings;
-using ClientPlugin.Storage;
 using Sandbox;
 using Sandbox.Game.Gui;
 using Sandbox.Game.SessionComponents.Clipboard;
 using Sandbox.Game.World;
 using Sandbox.Graphics.GUI;
+using Shared;
+using Shared.GridStore;
+using Shared.Session;
+using Shared.Storage;
+using VRage.Game;
 using VRage.Utils;
 using VRageMath;
 
@@ -62,19 +67,27 @@ public sealed class GridHistoryScreen : MyGuiScreenBase
             var message =
                 MySession.Static == null
                     ? "The grid history belongs to a world. Load one first."
-                    : "Undo is off in this world. It needs the plugin on the host, and creative tools in survival.";
+                    : "Undo is off in this world. It needs the plugin on the host or the Undo companion on the server, and creative tools in survival.";
             MyGuiSandbox.AddScreen(
                 MyGuiSandbox.CreateMessageBox(
                     MyMessageBoxStyleEnum.Info,
                     MyMessageBoxButtonsType.OK,
                     new StringBuilder(message),
-                    new StringBuilder(Plugin.Name)
+                    new StringBuilder(Log.Name)
                 )
             );
             return;
         }
         MyGuiSandbox.AddScreen(new GridHistoryScreen());
+        // On a client of a server the store is the server's
+        if (Remote)
+            CompanionClient.RequestRows();
     }
+
+    private static bool Remote => UndoSession.Document == null;
+
+    // The server sent the rows the dialog asked for
+    public static void RowsArrived() => current?.Fill();
 
     private GridHistoryScreen()
         : base(
@@ -160,7 +173,9 @@ public sealed class GridHistoryScreen : MyGuiScreenBase
     {
         var selected = table.SelectedRow?.UserData;
 
-        rows = UndoSession.Store.Index.Rows.ToList();
+        rows = Remote
+            ? CompanionClient.Rows?.ToList() ?? new List<StoreRow>()
+            : Actors.Local.Store.Index.Rows.ToList();
         rows.Sort(keys.Compare);
 
         table.Clear();
@@ -221,6 +236,13 @@ public sealed class GridHistoryScreen : MyGuiScreenBase
         if (row == null)
             return;
 
+        if (Remote)
+        {
+            // The server sends the file, PasteArrived goes on
+            CompanionClient.Fetch(row.Id);
+            return;
+        }
+
         var blueprint = StoredGroups.LoadBlueprint(row.Id);
         if (blueprint == null)
         {
@@ -228,7 +250,15 @@ public sealed class GridHistoryScreen : MyGuiScreenBase
             Fill();
             return;
         }
+        Paste(blueprint);
+    }
 
+    // The backup the server sent for the selected row
+    public static void PasteArrived(MyObjectBuilder_Definitions blueprint) =>
+        current?.Paste(blueprint);
+
+    private void Paste(MyObjectBuilder_Definitions blueprint)
+    {
         if (!MySession.Static.IsCopyPastingEnabled)
         {
             MyClipboardComponent.ShowCannotPasteError();
@@ -261,12 +291,17 @@ public sealed class GridHistoryScreen : MyGuiScreenBase
                 new StringBuilder(
                     $"Delete the backup of \"{row.MainGridName}\"? An undo step that needs it will no longer work."
                 ),
-                new StringBuilder(Plugin.Name),
+                new StringBuilder(Log.Name),
                 callback: result =>
                 {
                     if (result != MyGuiScreenMessageBox.ResultEnum.YES)
                         return;
-                    UndoSession.Store.Remove(row);
+                    if (Remote)
+                    {
+                        CompanionClient.Delete(row.Id);
+                        return;
+                    }
+                    Actors.Local.Store.Remove(row);
                     Fill();
                 }
             )

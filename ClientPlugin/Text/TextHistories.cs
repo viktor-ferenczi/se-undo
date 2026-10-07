@@ -7,6 +7,7 @@ using HarmonyLib;
 using Sandbox.Game.Gui;
 using Sandbox.Game.World;
 using Sandbox.Graphics.GUI;
+using Shared.Session;
 using VRage.Input;
 
 namespace ClientPlugin.Text;

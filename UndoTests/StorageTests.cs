@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
-using ClientPlugin.History;
-using ClientPlugin.Storage;
+using Shared.History;
+using Shared.Storage;
 using Xunit;
 
 namespace UndoTests;

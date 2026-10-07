@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using ClientPlugin.GridStore;
-using ClientPlugin.Ops;
 using ClientPlugin.Session;
 using HarmonyLib;
 using Sandbox.Definitions;
@@ -10,6 +9,11 @@ using Sandbox.Engine.Utils;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Cube;
 using Sandbox.Game.World;
+using Shared.Apply;
+using Shared.GridStore;
+using Shared.Ops;
+using Shared.Record;
+using Shared.Session;
 using VRage.Game.Entity;
 using VRage.Game.ModAPI;
 using VRage.Network;
@@ -22,8 +26,6 @@ namespace ClientPlugin.Record;
 [SuppressMessage("ReSharper", "InconsistentNaming")]
 public static class GridContextPatches
 {
-    private const string PlacedLabel = "placed 1 block, new grid {0}";
-
     // Every paste request of the local player, whether from the clipboard or not.
     // The request's own completion callback gets the grids.
     [HarmonyPatch(typeof(MyCubeGrid), nameof(MyCubeGrid.TryPasteGrid_Implementation))]
@@ -114,7 +116,7 @@ public static class GridContextPatches
                 Recorder.RecordCreated(
                     new List<MyCubeGrid> { grid },
                     StoreReason.Placed,
-                    PlacedLabel
+                    Recorder.PlacedLabel
                 );
         }
     }
@@ -144,6 +146,6 @@ public static class GridContextPatches
             );
         }
 
-        private static void Postfix() => Apply.Executor.OnServerFailure();
+        private static void Postfix() => Executor.OnServerFailure();
     }
 }

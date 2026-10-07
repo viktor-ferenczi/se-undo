@@ -1,0 +1,141 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using Sandbox.Definitions;
+using Sandbox.Game.Entities;
+using Sandbox.Game.Entities.Cube;
+using Sandbox.Game.World;
+using Shared.History;
+using Shared.Session;
+using VRage;
+using VRage.Game;
+using VRage.Network;
+using VRage.ObjectBuilders;
+using VRage.ObjectBuilders.Private;
+using VRageMath;
+
+namespace Shared.Ops;
+
+public static class GameAccess
+{
+    public const string GridMissing = "the grid no longer exists";
+
+    public static MyCubeGrid ResolveGrid(this GridRegistry grids, int handle)
+    {
+        var entityId = grids.EntityIdOf(handle);
+        return
+            entityId != 0
+            && MyEntities.TryGetEntityById(entityId, out MyCubeGrid grid)
+            && !grid.MarkedForClose
+            ? grid
+            : null;
+    }
+
+    // Runs a server request handler as the current actor's own request, invoked
+    // locally: the way a server runs the requests it raises itself, except that the
+    // sender is the player. The handlers take the sender's identity for the ownership
+    // checks and answer failures to it, and they skip the creative rights checks,
+    // which the actor passed already.
+    public static void AsRequestOf(Actor actor, Action request)
+    {
+        using (MyEventContext.Set(new EndpointId(actor.SteamId), null, isInvokedLocally: true))
+            request();
+    }
+
+    // Closes a grid through the player's close request, with its ownership rule. An
+    // economy station is refused without an error, the caller checks MarkedForClose.
+    public static void Close(MyCubeGrid grid) =>
+        AsRequestOf(Actor.Current, grid.OnGridClosedRequest);
+
+    // Blocks at their positions in the grid, in a grid builder placed like the grid
+    public static MyObjectBuilder_CubeGrid BlocksBuilder(
+        MyCubeGrid grid,
+        List<MyObjectBuilder_CubeBlock> blocks
+    )
+    {
+        var builder = (MyObjectBuilder_CubeGrid)
+            MyObjectBuilderSerializerKeen.CreateNewObject(typeof(MyObjectBuilder_CubeGrid));
+        builder.DisplayName = grid.DisplayName;
+        builder.GridSizeEnum = grid.GridSizeEnum;
+        builder.IsStatic = grid.IsStatic;
+        builder.PositionAndOrientation = new MyPositionAndOrientation(grid.WorldMatrix);
+        builder.CubeBlocks = blocks;
+        return builder;
+    }
+
+    // A cube block of the grid whose min corner is exactly this position
+    public static MySlimBlock BlockAt(this MyCubeGrid grid, Vector3I min)
+    {
+        var block = grid.GetCubeBlock(min);
+        return block != null && block.Min == min ? block : null;
+    }
+}
+
+// Object builders as nested XML text, written with Keen's serializer which knows
+// the polymorphic builder types
+public static class BuilderXml
+{
+    public static string Write(MyObjectBuilder_Base builder)
+    {
+        using var stream = new MemoryStream();
+        if (!MyObjectBuilderSerializerKeen.SerializeXML(stream, builder))
+            throw new InvalidOperationException($"Serializing {builder.GetType().Name} failed");
+        return Encoding.UTF8.GetString(stream.ToArray()).TrimStart('﻿');
+    }
+
+    public static T Read<T>(string xml)
+        where T : MyObjectBuilder_Base
+    {
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+        if (!MyObjectBuilderSerializerKeen.DeserializeXML(stream, out T builder))
+            throw new InvalidOperationException($"Deserializing {typeof(T).Name} failed");
+        return builder;
+    }
+}
+
+// Enough to place a block again: definition, position and orientation. The entity
+// id is reused on replay while it is free, so references to the block survive.
+public class BlockPlacement
+{
+    public string Definition;
+    public Vector3I Min;
+    public Base6Directions.Direction Forward;
+    public Base6Directions.Direction Up;
+    public long EntityId;
+
+    public static BlockPlacement From(MySlimBlock block) =>
+        new BlockPlacement
+        {
+            Definition = block.BlockDefinition.Id.ToString(),
+            Min = block.Min,
+            Forward = block.Orientation.Forward,
+            Up = block.Orientation.Up,
+            EntityId = block.FatBlock?.EntityId ?? 0,
+        };
+
+    public MyCubeGrid.MyBlockLocation ToLocation(long ownerId)
+    {
+        var definition = MyDefinitionManager.Static.GetCubeBlockDefinition(
+            MyDefinitionId.Parse(Definition)
+        );
+        var orientation = new MyBlockOrientation(Forward, Up);
+        var min = Min;
+        MySlimBlock.ComputeMax(definition, orientation, ref min, out var max);
+        var center = MySlimBlock.ComputePositionInGrid(new MatrixI(orientation), definition, min);
+        orientation.GetQuaternion(out var rotation);
+        var entityId =
+            EntityId != 0 && !MyEntities.EntityExists(EntityId)
+                ? EntityId
+                : MyEntityIdentifier.AllocateId();
+        return new MyCubeGrid.MyBlockLocation(
+            definition.Id,
+            min,
+            max,
+            center,
+            rotation,
+            entityId,
+            ownerId
+        );
+    }
+}

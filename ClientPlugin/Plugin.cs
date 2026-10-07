@@ -1,17 +1,21 @@
 using System;
 using System.Reflection;
+using ClientPlugin.Record;
 using ClientPlugin.Session;
 using ClientPlugin.Settings;
 using ClientPlugin.Settings.Layouts;
-using ClientPlugin.Storage;
 using HarmonyLib;
 using Sandbox.Graphics.GUI;
+using Shared;
+using Shared.Record;
+using Shared.Session;
+using Shared.Storage;
 using VRage.Plugins;
 
 // Define assembly version when compiled by Pulsar
 #if !LOCAL_BUILD
-[assembly: AssemblyVersion("0.1.1.0")]
-[assembly: AssemblyFileVersion("0.1.1.0")]
+[assembly: AssemblyVersion("0.2.0.0")]
+[assembly: AssemblyFileVersion("0.2.0.0")]
 
 #endif
 
@@ -20,7 +24,7 @@ namespace ClientPlugin;
 // ReSharper disable once UnusedType.Global
 public class Plugin : IPlugin
 {
-    public const string Name = "Undo";
+    public const string Name = Log.Name;
     public static Plugin Instance { get; private set; }
     private SettingsGenerator settingsGenerator;
 
@@ -32,6 +36,8 @@ public class Plugin : IPlugin
         Instance = this;
         Instance.settingsGenerator = new SettingsGenerator();
 
+        Options.Current = Config.Current;
+        Recorder.ControlsMayHaveChanged = TerminalContextPatches.ControlsMayHaveChanged;
         Config.Current.PropertyChanged += (_, _) => UndoSession.Configure();
 
         var harmony = new Harmony(Name);

@@ -1,70 +1,57 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using ClientPlugin.Apply;
-using ClientPlugin.GridStore;
+using ClientPlugin.Companion;
 using ClientPlugin.Gui;
-using ClientPlugin.History;
-using ClientPlugin.Ops;
 using ClientPlugin.Record;
-using ClientPlugin.Storage;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Multiplayer;
 using Sandbox.Game.World;
-using VRage.FileSystem;
+using Sandbox.ModAPI;
+using Shared;
+using Shared.Apply;
+using Shared.Companion;
+using Shared.History;
+using Shared.Ops;
+using Shared.Record;
+using Shared.Session;
+using Shared.Storage;
 using VRage.Game;
 using VRage.Game.Components;
 
 namespace ClientPlugin.Session;
 
-// Per world state, and where the history is loaded and saved, design section 8
+// Per world state, and where the history is loaded and saved, design section 8.
+// Where the plugin is the host it records and replays for the local player (the
+// local actor) and serves its joined players through the companion; on a client of
+// a server it asks the server's companion instead (design section 14).
 [MySessionComponentDescriptor(MyUpdateOrder.NoUpdate)]
 public class UndoSession : MySessionComponentBase
 {
     public const string WorldFileName = "Undo.xml.gz";
 
-    public static UndoDocument Document { get; private set; }
     public static string LastMessage;
 
     private static UndoDocumentSerializer serializer;
-    private static GridStoreFolder store;
-
-    // The document as it was when the game took its save snapshot. The save worker
-    // writes it next to the checkpoint, see WorldSavePatches.
-    public static volatile byte[] SavedDocument;
 
     private static UndoDocumentSerializer Serializer =>
         serializer ??= new UndoDocumentSerializer(OpTypes.All);
 
-    // Opened on first use, when the session knows its world and server
-    public static GridStoreFolder Store => store ??= new GridStoreFolder(StoredGroups.Folder());
+    // The local player's history, null on a client of a server
+    public static UndoDocument Document => Actors.Local?.Document;
 
-    // Undo only works where the plugin is the host, and in survival only with creative
-    // tools on, design section 2. The tools can be switched any time, so this is asked
-    // live; work already under way still finishes.
-    public static bool Active => Document != null && Sync.IsServer && Permissions.Creative;
-
-    public static string StorageRoot
-    {
-        get
-        {
-            var root = Config.Current.ClientStorageRoot;
-            return string.IsNullOrWhiteSpace(root)
-                ? Path.Combine(MyFileSystem.UserDataPath, Plugin.Name)
-                : root;
-        }
-    }
+    // Undo works for the local player: as the host, or through the server's
+    // companion, and in survival only with creative tools on (design section 2). The
+    // tools can be switched any time, so this is asked live.
+    public static bool Active => Actors.Local?.Active == true || CompanionClient.Active;
 
     public override void LoadData()
     {
-        Document = new UndoDocument();
+        Clear();
         LastMessage = null;
-        store = null;
-        SavedDocument = null;
         MyEntities.OnEntityAdd += OnEntityAdd;
         MySession.Static.OnSavingCheckpoint += OnSavingCheckpoint;
         MySession.OnUnloading += OnUnloading;
-        Configure();
     }
 
     // Entities exist by now, so most terminal controls do too, and the session
@@ -74,14 +61,22 @@ public class UndoSession : MySessionComponentBase
         Log.Info($"Session mode: {Permissions.Mode}");
         if (!Sync.IsServer)
         {
-            Log.Info("Not the host, undo is off in this world");
-            Clear();
+            CompanionClient.Start();
+            Changed();
             return;
         }
 
         TerminalContextPatches.PatchControls();
-        Document = Load();
+        Actors.Local = new Actor(Sync.MyId, isLocal: true)
+        {
+            Document = Load(),
+            Show = Hud,
+            Changed = Changed,
+        };
         Configure();
+
+        // A host serves the players who joined it the same way a server does
+        CompanionServer.Start();
         Changed();
     }
 
@@ -108,10 +103,10 @@ public class UndoSession : MySessionComponentBase
 
     private static void Clear()
     {
-        Recorder.Reset();
-        Document = null;
-        store = null;
-        SavedDocument = null;
+        CompanionClient.Stop();
+        CompanionServer.Stop();
+        Actors.Clear();
+        WorldSavePatches.Clear();
     }
 
     // In the save folder, null when the config says not to keep the history
@@ -150,7 +145,7 @@ public class UndoSession : MySessionComponentBase
     // Main thread, inside MySession.Save, while the game state is consistent
     private static void OnSavingCheckpoint(MyObjectBuilder_Checkpoint checkpoint)
     {
-        SavedDocument = null;
+        WorldSavePatches.Set(WorldFileName, null);
         if (Document == null || !Config.Current.PersistInTheWorldSave)
             return;
 
@@ -158,7 +153,7 @@ public class UndoSession : MySessionComponentBase
         {
             // A stroke still being coalesced belongs to the saved state
             Recorder.Flush();
-            SavedDocument = Serializer.Save(Document);
+            WorldSavePatches.Set(WorldFileName, Serializer.Save(Document));
         }
         catch (Exception e)
         {
@@ -166,59 +161,81 @@ public class UndoSession : MySessionComponentBase
         }
     }
 
-    // Applies the history limits of the config, also called when the config changes
+    // Applies the options of the config, also called when the config changes
     public static void Configure()
     {
-        if (Document == null)
+        var options = Config.Current.PlayerOptions();
+        CompanionClient.OptionsChanged();
+
+        var local = Actors.Local;
+        if (local == null)
             return;
 
-        var config = Config.Current;
-        Document.Build.MaxNodes = config.MaxNodesBuild;
-        Document.Build.Tree = config.UndoTree;
-        Document.Terminal.MaxNodes = config.MaxNodesTerminal;
-        Document.Terminal.Tree = config.UndoTree;
+        local.Options = options;
+        local.Document.Build.MaxNodes = options.MaxNodesBuild;
+        local.Document.Build.Tree = options.UndoTree;
+        local.Document.Terminal.MaxNodes = options.MaxNodesTerminal;
+        local.Document.Terminal.Tree = options.UndoTree;
     }
 
     // Called every frame from the plugin's update
     public static void Update()
     {
-        if (Document == null)
-            return;
+        CompanionClient.Update();
+        if (Document != null)
+            TerminalContextPatches.Update();
+        Actors.Update();
+    }
 
-        TerminalContextPatches.Update();
-        Recorder.Update();
-        Executor.Update(Document.Build);
-        Executor.Update(Document.Terminal);
+    // What the server's companion answered to a step. Logged and written to the
+    // status file, so tests can read it.
+    public static void Show(string text)
+    {
+        Log.Info(text);
+        Hud(text);
+        Changed();
+    }
+
+    // HUD text for undo, redo and refusals
+    private static void Hud(string text)
+    {
+        LastMessage = text;
+        var config = Config.Current;
+        if (config.Notifications)
+            MyAPIGateway.Utilities?.ShowNotification(text, config.NotificationDurationMs);
     }
 
     // After every history change
     public static void Changed()
     {
-        if (Document == null)
-            return;
-
-        if (!Config.Current.DebugStatusFile)
+        if (!Config.Current.DebugStatusFile || Document == null && !CompanionClient.Connected)
             return;
 
         try
         {
             // Serializing on every change is only affordable in debug mode, and it
-            // exercises the XML serialization of the real ops in game.
-            var size = Serializer.Save(Document).Length;
-
-            var histories = new[]
+            // exercises the XML serialization of the real ops in game. On a client
+            // of a server the histories are the server's, see its status file.
+            var histories = new List<KeyValuePair<string, UndoHistory>>();
+            var size = 0;
+            if (Document != null)
             {
-                new KeyValuePair<string, UndoHistory>("build", Document.Build),
-                new KeyValuePair<string, UndoHistory>("terminal", Document.Terminal),
-            };
-            Directory.CreateDirectory(StorageRoot);
+                size = Serializer.Save(Document).Length;
+                histories.Add(new KeyValuePair<string, UndoHistory>("build", Document.Build));
+                histories.Add(new KeyValuePair<string, UndoHistory>("terminal", Document.Terminal));
+            }
+
+            var root = Options.Current.StorageRoot;
+            Directory.CreateDirectory(root);
             File.WriteAllText(
-                Path.Combine(StorageRoot, "status.json"),
+                Path.Combine(root, "status.json"),
                 StatusFile.ToJson(
                     histories,
                     LastMessage,
                     size,
-                    GridHistoryScreen.StatusJson(),
+                    GridHistoryScreen.StatusJson()
+                        + ",\"companion\":"
+                        + (CompanionClient.Connected ? "true" : "false"),
                     Permissions.Mode.ToString()
                 )
             );
