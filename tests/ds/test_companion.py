@@ -26,6 +26,7 @@ import ds_rig
 import rig
 from harness import wait_until
 from se_remote import CallOp
+from test_grid_store import shown
 
 # Shared/Companion/Protocol.cs: the channel, MessageType.Step and StepContext
 CHANNEL = 48771
@@ -304,10 +305,7 @@ def test_grid_history_lists_the_servers_backups(game):
     """Ctrl-H asks the server for the rows of the player's grid store"""
     game.api.key("H", ["LeftControl"])
     try:
-        rows = wait_until(
-            lambda: (g := game.status().get("gridHistory")) and g["rows"],
-            "the rows from the server",
-        )
+        rows = wait_until(lambda: shown(game.api), "the rows from the server")
         names = [row[1] for row in rows]
         assert names.count(PASTE_NAME) >= 2  # pasted and deleted
     finally:

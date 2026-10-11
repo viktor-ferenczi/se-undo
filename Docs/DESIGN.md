@@ -745,7 +745,7 @@ other tunables.
 | Client storage root | `<UserDataPath>/Undo` | Root of the grid store (`Worlds/`) and of the status file; empty in the config means the default |
 | Notifications | on | HUD text on undo, redo and refusals |
 | Notification duration ms | 2000 | HUD text lifetime |
-| Debug status file | off | Writes `<Client storage root>/status.json` after every history change, for the tests: the session mode, both histories, the last notification, and the rows of the grid history dialog while it is open |
+| Debug status file | off | Writes `<Client storage root>/status.json` after every history change, for the tests: the session mode, both histories and the last notification |
 | Log level | Info | Plugin log verbosity in the game log |
 
 On a client of a server the options that belong to the player go to the companion
@@ -866,7 +866,7 @@ from the sector file after `POST /v1/game/save`, since the Remote API has no end
 for toolbars, controller lists or groups. The status file also carries the size of the
 serialized undo document, which runs the XML serialization of the real ops in game,
 and per node the unknown result and barrier flags and the store entries it refers
-to. While the grid history dialog is open it also has the dialog's sort keys and rows.
+to.
 The run's `Undo.cfg` sets the per world grid store budget to 1 MB, below the slider's
 minimum in the config dialog, for the retention and oversized rows.
 

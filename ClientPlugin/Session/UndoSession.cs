@@ -233,9 +233,7 @@ public class UndoSession : MySessionComponentBase
                     histories,
                     LastMessage,
                     size,
-                    GridHistoryScreen.StatusJson()
-                        + ",\"companion\":"
-                        + (CompanionClient.Connected ? "true" : "false"),
+                    "\"companion\":" + (CompanionClient.Connected ? "true" : "false"),
                     Permissions.Mode.ToString()
                 )
             );

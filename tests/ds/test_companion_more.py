@@ -385,13 +385,13 @@ def open_dialog(game) -> int:
     rig.focus_gameplay(game.api)
     game.api.key("H", ["LeftControl"])
     screen = wait_until(lambda: dialog(game.api), "the dialog")["index"]
-    wait_until(lambda: shown(game)["rows"], "the rows from the server")
+    wait_until(lambda: shown(game.api), "the rows from the server")
     time.sleep(1)  # the opening transition takes no input
     return screen
 
 
 def select(game, screen: int, name: str) -> None:
-    names = [row[1] for row in shown(game)["rows"]]
+    names = [row[1] for row in shown(game.api)]
     game.api.control_set("GridHistoryTable", names.index(name), screen=screen)
 
 
@@ -426,12 +426,12 @@ def test_the_dialog_pastes_and_deletes_backups_on_the_server(game):
     wait_until(lambda: not named(game, name), "the paste undone")
 
     screen = open_dialog(game)
-    count = len(shown(game)["rows"])
+    count = len(shown(api))
     select(game, screen, name)
     api.control_click(text="Delete", screen=screen)
     box = wait_until(lambda: message_box(api), "the delete confirmation")
     api.control_click(text="Yes", screen=box["index"])
-    wait_until(lambda: len(shown(game)["rows"]) == count - 1, "one row less")
+    wait_until(lambda: len(shown(api)) == count - 1, "one row less")
     rig.focus_gameplay(api)
 
 

@@ -122,7 +122,6 @@ public sealed class GridHistoryScreen : MyGuiScreenBase
         if (sortChanged)
             ConfigStorage.Save(Config.Current);
         base.OnRemoved();
-        UndoSession.Changed();
     }
 
     public override void RecreateControls(bool constructor)
@@ -201,8 +200,6 @@ public sealed class GridHistoryScreen : MyGuiScreenBase
             table.Columns[(int)keys.Keys[0].Key].SortState = keys.Keys[0].Value
                 ? MyGuiControlTable.SortStateEnum.Descending
                 : MyGuiControlTable.SortStateEnum.Ascending;
-
-        UndoSession.Changed();
     }
 
     private static string[] Cells(StoreRow row) =>
@@ -306,23 +303,5 @@ public sealed class GridHistoryScreen : MyGuiScreenBase
                 }
             )
         );
-    }
-
-    // For the debug status file: the rows as the table shows them. The Remote API
-    // reports a table's row count and selection, not its cells.
-    public static string StatusJson()
-    {
-        var screen = current;
-        if (screen?.table == null)
-            return "\"gridHistory\":null";
-
-        var lines = screen.rows.Select(r =>
-            "[" + string.Join(",", Cells(r).Select(StatusFile.Quote)) + "]"
-        );
-        return "\"gridHistory\":{\"sortKeys\":"
-            + StatusFile.Quote(screen.keys.ToString())
-            + ",\"rows\":["
-            + string.Join(",", lines)
-            + "]}";
     }
 }
