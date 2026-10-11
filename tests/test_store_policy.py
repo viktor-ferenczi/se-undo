@@ -38,7 +38,7 @@ def test_dialog_of_a_world_with_no_backups(game):
     api = game.api
     screen = open_dialog(game)
     assert table_control(api, screen)["properties"]["rowsCount"] == 0
-    assert shown(game)["rows"] == []
+    assert shown(api) == []
 
     # Nothing selected: Paste and Delete have nothing to act on
     api.control_click(text="Paste", screen=screen)
@@ -54,7 +54,6 @@ def test_dialog_of_a_world_with_no_backups(game):
 
     api.control_click(text="Close", screen=screen)
     wait_until(lambda: not dialog(api), "the dialog to close")
-    assert "gridHistory" not in game.status() or not game.status()["gridHistory"]
 
 
 def test_oversized_backup_raises_the_budget_without_asking(game):
@@ -86,7 +85,7 @@ def test_delete_answered_with_no_keeps_the_backup(game):
     before = len(rows())
 
     screen = open_dialog(game)
-    names = [r[1] for r in shown(game)["rows"]]
+    names = [r[1] for r in shown(api)]
     api.control_set("GridHistoryTable", names.index(name_of("A")), screen=screen)
     api.control_click(text="Delete", screen=screen)
     box = wait_until(lambda: message_box(api), "the delete confirmation")
@@ -108,7 +107,7 @@ def test_paste_button_puts_the_backup_on_the_clipboard(game):
     assert not api.get_character_target(max_distance=200)["hit"]
 
     screen = open_dialog(game)
-    names = [r[1] for r in shown(game)["rows"]]
+    names = [r[1] for r in shown(api)]
     api.control_set("GridHistoryTable", names.index(name_of("A")), screen=screen)
     api.control_click(text="Paste", screen=screen)
     wait_until(lambda: not dialog(api), "the dialog to close")

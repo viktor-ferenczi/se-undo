@@ -212,15 +212,8 @@ def test_oversized_backup_asks_once_per_backup(game):
 # Grid history dialog
 # ---------------------------------------------------------------------------
 
+TABLE = "GridHistoryTable"
 COLUMNS = ["Time", "Name", "Blocks", "Grids", "PCU", "Size", "Reason"]
-# Column widths as fractions of the table without its scrollbar, which takes the
-# last 5% of the control
-WIDTHS = [0.25, 0.27, 0.09, 0.08, 0.08, 0.1, 0.13]
-COLUMNS_SHARE = 0.95
-# The control is this many row heights tall: header, visible rows, padding
-VISIBLE_ROWS = 14
-LINES = VISIBLE_ROWS + 1.2
-WINDOW = (1280, 720)
 
 
 def dialog(api) -> dict | None:
@@ -232,7 +225,7 @@ def dialog(api) -> dict | None:
 def table_control(api, screen: int) -> dict:
     def walk(node):
         if isinstance(node, dict):
-            if node.get("name") == "GridHistoryTable":
+            if node.get("name") == TABLE:
                 return node
             node = list(node.values())
         if isinstance(node, list):
@@ -245,36 +238,28 @@ def table_control(api, screen: int) -> dict:
     return walk(api.get_controls(screen))
 
 
-def table_point(api, screen: int, column: int, line: int) -> tuple[int, int]:
-    """Window pixel inside a table cell; line 0 is the header. Remote reports the
-    control in GUI coordinates, which span a centered 4:3 area of the window.
-    Its control/hover endpoint would do this, but lands elsewhere (SE1-0072)."""
-    table = table_control(api, screen)
-    left, top = table["topLeft"]["x"], table["topLeft"]["y"]
-    width, height = table["size"]["x"], table["size"]["y"]
-    x = left + width * COLUMNS_SHARE * (sum(WIDTHS[:column]) + WIDTHS[column] / 2)
-    y = top + height * (line + 0.5) / LINES
-    gui_width = WINDOW[1] * 4 / 3
-    return round((WINDOW[0] - gui_width) / 2 + x * gui_width), round(y * WINDOW[1])
+def shown(api) -> list[list[str]]:
+    """The cells of the dialog's rows as the table shows them, none while it is closed"""
+    screen = dialog(api)
+    if not screen:
+        return []
+    table = table_control(api, screen["index"])["properties"]
+    return [row["cells"] for row in table["rows"]]
 
 
-def table_click(api, screen: int, column: int, line: int, double: bool = False):
-    # The table learns which header or row the cursor is over while handling the
-    # frame before the click, so the cursor has to be there first
-    x, y = table_point(api, screen, column, line)
-    api.mouse_move(x, y)
-    time.sleep(0.2)
-    api.click(x, y, double=double)
+def sort_arrow(api, screen: int) -> tuple[str, str] | None:
+    """The column whose header shows the arrow, and its direction"""
+    columns = table_control(api, screen)["properties"]["columns"]
+    return next(
+        ((c["name"], c["sortState"]) for c in columns if c["sortState"] != "Unsorted"),
+        None,
+    )
 
 
-def shown(game) -> dict:
-    return game.status()["gridHistory"]
-
-
-def click_header(game, screen: int, column: str, expect_keys: str) -> list[list[str]]:
-    table_click(game.api, screen, COLUMNS.index(column), 0)
-    wait_until(lambda: shown(game)["sortKeys"] == expect_keys, f"sort by {expect_keys}")
-    return shown(game)["rows"]
+def click_header(api, screen: int, column: str, arrow: str) -> list[list[str]]:
+    api.control_click(TABLE, header=COLUMNS.index(column), screen=screen)
+    wait_until(lambda: sort_arrow(api, screen) == (column, arrow), f"{column} {arrow}")
+    return shown(api)
 
 
 def test_grid_history_dialog(game):
@@ -291,19 +276,17 @@ def test_grid_history_dialog(game):
     table = table_control(api, screen)
     index = rows()
     assert table["properties"]["rowsCount"] == len(index)
-    listed = shown(game)
-    assert listed["sortKeys"] == "-Time"
-    times = [r[0] for r in listed["rows"]]
+    listed = shown(api)
+    assert sort_arrow(api, screen) == ("Time", "Descending")
+    times = [r[0] for r in listed]
     assert times == sorted(times, reverse=True)
-    assert sorted(r[1] for r in listed["rows"]) == sorted(
-        r.get("MainGridName") for r in index
-    )
+    assert sorted(r[1] for r in listed) == sorted(r.get("MainGridName") for r in index)
 
     # Time is the first key already, so the click flips it. Name then goes in
     # front of it: by name, oldest first inside each name.
-    by_time = click_header(game, screen, "Time", "Time")
+    by_time = click_header(api, screen, "Time", "Ascending")
     assert [r[0] for r in by_time] == sorted(times)
-    by_name = click_header(game, screen, "Name", "Name,Time")
+    by_name = click_header(api, screen, "Name", "Ascending")
     keys = [(r[1].lower(), r[0]) for r in by_name]
     assert keys == sorted(keys)
     assert len({r[1] for r in by_name}) > 1
@@ -311,21 +294,19 @@ def test_grid_history_dialog(game):
     # Delete asks first, then the row and its file are gone
     doomed = next(i for i, r in enumerate(by_name) if r[1] == name_of("C"))
     (row_c,) = rows("C")
-    api.control_set("GridHistoryTable", doomed, screen=screen)
+    api.control_click(TABLE, row=doomed, screen=screen)
     api.control_click(text="Delete", screen=screen)
     box = wait_until(lambda: message_box(api), "the delete confirmation")
     api.control_click(text="Yes", screen=box["index"])
     wait_until(lambda: not rows("C"), "the backup of C to go")
     assert not has_file(row_c)
-    by_name = shown(game)["rows"]
+    by_name = shown(api)
     assert name_of("C") not in [r[1] for r in by_name]
 
     # A double click puts the backup on the clipboard and closes the dialog; the
     # player then places it like any paste
     line = next(i for i, r in enumerate(by_name) if r[1] == name_of("D"))
-    assert line < VISIBLE_ROWS
-    screen = dialog(api)["index"]
-    table_click(api, screen, 1, line + 1, double=True)
+    api.control_click(TABLE, row=line, double_click=True, screen=screen)
     wait_until(lambda: not dialog(api), "the dialog to close")
     assert rig.undo_config("GridHistorySortKeys") == "Name,Time"
 

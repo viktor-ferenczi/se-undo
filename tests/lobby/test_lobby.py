@@ -20,6 +20,7 @@ import time
 import lobby_rig
 import rig
 from harness import links, wait_until
+from test_grid_store import shown
 
 # Shared/Companion/Protocol.cs: the channel, MessageType.Step and StepContext
 CHANNEL = 48771
@@ -302,10 +303,7 @@ def test_a_joined_terminal_change_then_undo(host, joiner):
 def test_the_joined_grid_history_lists_the_hosts_backups(joiner):
     joiner.api.key("H", ["LeftControl"])
     try:
-        rows = wait_until(
-            lambda: (g := joiner.status().get("gridHistory")) and g["rows"],
-            "the rows from the host",
-        )
+        rows = wait_until(lambda: shown(joiner.api), "the rows from the host")
         assert [row[1] for row in rows].count("Undo Joined Paste") >= 2
     finally:
         rig.focus_gameplay(joiner.api)

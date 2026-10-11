@@ -16,8 +16,9 @@ The grid tests need two Remote fixes from CometWorks/remote#28 (`grid_close` thr
 the player's close request, the target endpoint naming armor blocks), which are on
 its main branch. The terminal tests read programs with Remote's `GetProgram` call op
 (`get_pb_program`), also on its main branch. Every world load waits for the `ready`
-field of Remote's game state, from CometWorks/remote#32 (branch `game-state-ready`
-until it merges).
+field of Remote's game state, from CometWorks/remote#32. The grid history dialog and
+load menu tests read table rows and click rows and headers through the table API of
+CometWorks/remote#41 (Remote 1.1.0).
 
 A Pulsar folder of its own, with only the Remote and Undo dev folders enabled:
 

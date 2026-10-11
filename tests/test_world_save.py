@@ -11,6 +11,8 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import httpx
+
 import rig
 from harness import wait_until
 
@@ -181,21 +183,30 @@ def load_menu(api) -> int:
         time.sleep(1)
         api.control_click(name="LoadWorld", screen=top(api)["index"])
     screen = wait_screen(api, "MyGuiScreenLoadSandbox")
+    wait_until(
+        lambda: rig.WORLD_NAME in [r["cells"][0] for r in browser(api, screen)["rows"]],
+        "the test world's row",
+    )
 
-    # The list of saves is filled a moment after the screen opens, and again
-    # after Save As; a click on the name selects nothing before that
+    # The list is filled again behind a progress screen a moment after the screen
+    # opens and after Save As. A row picked then would be lost, so Remote refuses it.
     def selected():
-        api.control_click(text=rig.WORLD_NAME, screen=screen)
-        return browser(api, screen)["properties"]["selectedRowIndex"] is not None
+        try:
+            api.control_click(text=rig.WORLD_NAME, screen=screen)
+        except httpx.HTTPStatusError as err:
+            if err.response.status_code != 409:
+                raise
+            return False
+        return True
 
-    wait_until(selected, "the test world's row", interval=0.5)
+    wait_until(selected, "the list to settle", interval=0.5)
     return screen
 
 
 def browser(api, screen: int) -> dict:
     return next(
         c for c in api.get_controls(screen) if c.get("name") == "SaveBrowserTable"
-    )
+    )["properties"]
 
 
 def test_save_as_from_the_load_menu_copies_the_history(game):
@@ -205,20 +216,17 @@ def test_save_as_from_the_load_menu_copies_the_history(game):
 
     api.control_click(name="SaveAs", screen=screen)
     dialog = wait_screen(api, "MyGuiScreenSaveAs")
-    # The dialog proposes the name of the world it copies. That is the first row's
-    # here, whatever was selected: the save browser keeps a multi selection of its
-    # own, which Remote's row selection does not change (SE1-0073).
+    # The dialog proposes the name of the world it copies: the clicked one
     proposed = next(
         c for c in api.get_controls(dialog) if c.get("type") == "MyGuiControlTextbox"
     )
-    source = rig.SAVES / proposed["properties"]["text"] / FILE
-    assert source.exists()
+    assert proposed["properties"]["text"] == rig.WORLD_NAME
     api.control_set("Textbox", MENU_COPY, screen=dialog)
     api.control_click(text="OK", screen=dialog)
     copy = rig.SAVES / MENU_COPY / FILE
     wait_until(copy.exists, "the copied world", timeout=60)
     wait_screen(api, "MyGuiScreenLoadSandbox")
-    assert copy.read_bytes() == source.read_bytes()
+    assert copy.read_bytes() == (rig.WORLD / FILE).read_bytes()
 
 
 def test_backup_restore_through_the_load_menu(game):
