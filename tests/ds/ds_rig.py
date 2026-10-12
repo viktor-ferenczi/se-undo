@@ -269,7 +269,7 @@ def prepare_server(
 
 def server_pid() -> int | None:
     if rig.WINDOWS:
-        return rig.windows_pid(str(SERVER_CONFIG))
+        return rig.windows_pid(str(SERVER_CONFIG), MAGNETAR_EXE)
     try:
         pid = int(SERVER_PID.read_text().strip())
         cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()

@@ -826,12 +826,13 @@ def ensure_pulsar(client: Client = CLIENT) -> None:
     )
 
 
-def windows_pid(marker: str) -> int | None:
-    """The oldest process whose command line has this marker. A Steam client's
-    launcher may come back under a new pid, so the pid file is not trusted."""
+def windows_pid(marker: str, name: str) -> int | None:
+    """The oldest process of this executable name whose command line has this
+    marker. A Steam client's launcher may come back under a new pid, so the pid
+    file is not trusted."""
     script = (
         "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and "
-        f"$_.CommandLine.Contains('{marker}') -and $_.Name -ne 'powershell.exe' }} | "
+        f"$_.CommandLine.Contains('{marker}') -and $_.Name -eq '{name}' }} | "
         "Sort-Object CreationDate | Select-Object -First 1 -ExpandProperty ProcessId"
     )
     out = subprocess.run(
@@ -854,7 +855,7 @@ def hide_window(pid: int) -> None:
 
 def running_pid(client: Client = CLIENT) -> int | None:
     if WINDOWS:
-        return windows_pid(str(client.appdata))
+        return windows_pid(str(client.appdata), client.launcher.name)
     try:
         pid = int(client.pid_file.read_text().strip())
         cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
