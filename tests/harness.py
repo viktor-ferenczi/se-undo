@@ -405,7 +405,10 @@ def links(station: ET.Element) -> dict:
 def wait_until(predicate, what: str, timeout: float = 20.0, interval: float = 0.1):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        result = predicate()
+        try:
+            result = predicate()
+        except PermissionError:  # Windows: the game still has the file open
+            result = None
         if result:
             return result
         time.sleep(interval)
