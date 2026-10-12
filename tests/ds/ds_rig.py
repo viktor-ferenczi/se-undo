@@ -40,7 +40,12 @@ HOME = Path.home()
 
 ROOT = Path(os.environ.get("UNDO_DS_ROOT", HOME / ".se-test/undo-ds"))
 MAGNETAR = Path(os.environ.get("UNDO_MAGNETAR_DIR", HOME / ".config/Magnetar"))
-MAGNETAR_TEMPLATE = MAGNETAR / "Magnetar"
+# The Magnetar instance whose plugin sources the server copies
+MAGNETAR_TEMPLATE = Path(
+    os.environ.get("UNDO_MAGNETAR_TEMPLATE", MAGNETAR / "Magnetar")
+)
+# MagnetarLegacy.exe or MagnetarInterim.exe on Windows
+MAGNETAR_EXE = os.environ.get("UNDO_MAGNETAR_EXE", "MagnetarInterim.bin")
 DS64 = Path(
     os.environ.get(
         "UNDO_DS64",
@@ -49,9 +54,15 @@ DS64 = Path(
         / "SpaceEngineersDedicatedServer/DedicatedServer64",
     )
 )
-DS_CONFIG_TEMPLATE = (
-    HOME / ".config/SpaceEngineersDedicated/SpaceEngineers-Dedicated.cfg"
+DS_CONFIG_TEMPLATE = Path(
+    os.environ.get(
+        "UNDO_DS_CONFIG_TEMPLATE",
+        HOME / ".config/SpaceEngineersDedicated/SpaceEngineers-Dedicated.cfg",
+    )
 )
+# UNDO_DIRECT_TRANSPORT=0: the client joins over Steam networking (+connect), which
+# the .NET Framework loaders need, since DirectTransport is CoreCLR only
+DIRECT = os.environ.get("UNDO_DIRECT_TRANSPORT", "1") != "0"
 SERVER_PORT = int(os.environ.get("UNDO_DS_PORT", "27116"))
 SERVER_CONFIG = ROOT / "magnetar"
 SERVER_DATA = ROOT / "data"
@@ -69,15 +80,16 @@ SERVER_STATUS = SERVER_DATA / "Undo" / "status-players.json"
 
 CLIENT = rig.Client(
     os.environ.get("UNDO_MP_PULSAR_DIR", HOME / ".se-test/undo-mp"),
-    "UndoMpInterim.bin",
+    os.environ.get("UNDO_MP_LAUNCHER", "UndoMpInterim.bin"),
     os.environ.get("UNDO_MP_APPDATA", HOME / ".se-test/undo-mp-data"),
     int(os.environ.get("UNDO_MP_REMOTE_PORT", "24177")),
 )
 # From the block of ids this machine uses for test clients
-CLIENT_ID = 76561199500000131
+# Over Steam the client is the Steam account's own id
+CLIENT_ID = int(os.environ.get("UNDO_MP_CLIENT_ID", "76561199500000131"))
 CLIENT_NAME = "UndoTester"
 LOG = CLIENT.appdata / "SpaceEngineers.log"
-CLIENT_PLUGINS = ("remote", UNDO_ID, "direct-transport")
+CLIENT_PLUGINS = ("remote", UNDO_ID) + (("direct-transport",) if DIRECT else ())
 
 # The second client, an administrator without creative tools
 CLIENT2 = rig.Client(
@@ -201,13 +213,16 @@ def prepare_server(
     if not (SERVER_CONFIG / "Sources").exists():
         SERVER_CONFIG.mkdir(parents=True, exist_ok=True)
         shutil.copytree(MAGNETAR_TEMPLATE / "Sources", SERVER_CONFIG / "Sources")
-        shutil.copy(MAGNETAR_TEMPLATE / "config.xml", SERVER_CONFIG / "config.xml")
+        if (MAGNETAR_TEMPLATE / "config.xml").exists():
+            shutil.copy(MAGNETAR_TEMPLATE / "config.xml", SERVER_CONFIG / "config.xml")
     register_source(
         SERVER_CONFIG / "Sources" / "sources.xml", "se-undo", rig.REPO, "UndoServer.xml"
     )
     (SERVER_CONFIG / "Profiles").mkdir(exist_ok=True)
     (SERVER_CONFIG / "Profiles" / "Current.xml").write_text(
-        _profile(["direct-transport", UNDO_ID] if companion else ["direct-transport"]),
+        _profile(
+            (["direct-transport"] if DIRECT else []) + ([UNDO_ID] if companion else [])
+        ),
         encoding="utf-8",
     )
 
@@ -234,7 +249,8 @@ def prepare_server(
     }.items():
         text, count = re.subn(
             rf"<{tag}>.*?</{tag}>|<{tag} />",
-            f"<{tag}>{value}</{tag}>",
+            # A function, so the backslashes of a Windows path stay literal
+            lambda _, tag=tag, value=value: f"<{tag}>{value}</{tag}>",
             text,
             flags=re.S,
         )
@@ -252,6 +268,8 @@ def prepare_server(
 
 
 def server_pid() -> int | None:
+    if rig.WINDOWS:
+        return rig.windows_pid(str(SERVER_CONFIG))
     try:
         pid = int(SERVER_PID.read_text().strip())
         cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
@@ -266,7 +284,7 @@ def start_server(timeout: float = 300.0) -> None:
     log = open(SERVER_LOG, "w")
     process = subprocess.Popen(
         [
-            str(MAGNETAR / "MagnetarInterim.bin"),
+            str(MAGNETAR / MAGNETAR_EXE),
             "-multiInstance",
             "-stableLogs",
             "-noimplicitmod",
@@ -280,11 +298,13 @@ def start_server(timeout: float = 300.0) -> None:
             str(SERVER_DATA),
         ],
         cwd=MAGNETAR,
-        env={**os.environ, "SE_DIRECT_TRANSPORT": "1"},
+        env={**os.environ, "SE_DIRECT_TRANSPORT": "1" if DIRECT else "0"},
         stdout=log,
         stderr=subprocess.STDOUT,
         stdin=subprocess.DEVNULL,
         start_new_session=True,
+        # No console window on the desktop
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     SERVER_PID.write_text(str(process.pid))
 
@@ -298,9 +318,14 @@ def start_server(timeout: float = 300.0) -> None:
 
 
 def stop_server(timeout: float = 120.0) -> None:
-    """SIGTERM makes Magnetar save the world and quit"""
+    """SIGTERM makes Magnetar save the world and quit. Windows has no graceful
+    stop, the process is killed: call save_world first."""
     pid = server_pid()
     if pid is None:
+        return
+    if rig.WINDOWS:
+        subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+        SERVER_PID.unlink(missing_ok=True)
         return
     os.kill(pid, signal.SIGTERM)
     deadline = time.monotonic() + timeout
@@ -310,6 +335,27 @@ def stop_server(timeout: float = 120.0) -> None:
             break
         time.sleep(1)
     SERVER_PID.unlink(missing_ok=True)
+
+
+def save_world(api, timeout: float = 120.0) -> None:
+    """On Windows, where stop_server cannot save, the administrator client saves
+    the world with Magnetar's !save chat command. A no-op elsewhere."""
+    if not rig.WINDOWS:
+        return
+    after = api.get_chat_messages().get("latest", 0)
+    saved = WORLD / "Sandbox.sbc"
+    before = saved.stat().st_mtime_ns
+    api.send_chat("!save")
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        messages = api.get_chat_messages(after).get("messages", [])
+        if any("World saved" in str(m.get("Text", "")) for m in messages):
+            return
+        if saved.stat().st_mtime_ns != before:
+            time.sleep(5)  # the rest of the save, the companion's file included
+            return
+        time.sleep(1)
+    raise TimeoutError("No 'World saved.' answer to !save")
 
 
 def clone_client(client: rig.Client) -> None:
@@ -328,8 +374,8 @@ def clone_client(client: rig.Client) -> None:
             shutil.copy2(entry, target)
     shutil.copy2(CLIENT.launcher, client.launcher)
     shutil.copytree(
-        CLIENT.pulsar / "Legacy",
-        client.pulsar / "Legacy",
+        CLIENT.pulsar / rig.PULSAR_DATA,
+        client.pulsar / rig.PULSAR_DATA,
         ignore=shutil.ignore_patterns("Preloader", "info*.log"),
     )
 
@@ -340,7 +386,7 @@ def launch_client(
     """Launches a client with Remote and Undo compiled from the working copies.
     plugins are the dev folders its profile enables."""
     clone_client(client)
-    legacy = client.pulsar / "Legacy"
+    legacy = client.pulsar / rig.PULSAR_DATA
     profile = legacy / "Profiles" / "Current.xml"
     profile.write_text(_profile(plugins), encoding="utf-8")
     sources = legacy / "Sources" / "sources.xml"
@@ -360,18 +406,19 @@ def start_client(
 ):
     """Starts a client, which joins on its own, and returns its API once the
     character stands in the world"""
-    launch_client(
-        client,
-        [
-            "--connect",
-            f"127.0.0.1:{SERVER_PORT}",
-            "--client-id",
-            str(client_id),
-            "--client-name",
-            name,
-        ],
-        plugins,
-    )
+    args = [
+        "--connect",
+        f"127.0.0.1:{SERVER_PORT}",
+        "--client-id",
+        str(client_id),
+        "--client-name",
+        name,
+    ]
+    if not DIRECT:
+        # The game's own command line join, over Steam
+        connect = os.environ.get("UNDO_STEAM_CONNECT", f"127.0.0.1:{SERVER_PORT}")
+        args = ["+connect", connect]
+    launch_client(client, args, plugins)
     api = rig.api(client)
     api.wait_for_api(max_wait=240)
     wait_joined(api, timeout, client, undo=UNDO_ID in plugins)

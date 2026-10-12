@@ -27,7 +27,24 @@ from pathlib import Path
 
 HOME = Path.home()
 REPO = Path(__file__).resolve().parent.parent
-REMOTE_REPO = REPO.parent / "remote"
+REMOTE_REPO = Path(os.environ.get("UNDO_REMOTE_REPO", REPO.parent / "remote"))
+WINDOWS = os.name == "nt"
+# The game config a fresh user data folder starts from
+GAME_CFG = Path(
+    os.environ.get(
+        "UNDO_GAME_CFG",
+        (
+            Path(os.environ.get("APPDATA", HOME)) / "SpaceEngineers/SpaceEngineers.cfg"
+            if WINDOWS
+            else HOME / ".config/SpaceEngineers/SpaceEngineers.cfg"
+        ),
+    )
+)
+# The loader data folder next to the launcher: Legacy on Linux, on Windows the one
+# named after the launcher (Legacy or Interim)
+PULSAR_DATA = os.environ.get("UNDO_PULSAR_DATA", "Legacy")
+# On Windows the window of every client goes off-screen right after the start
+HIDE_WINDOW = os.environ.get("UNDO_HIDE_WINDOW_SCRIPT")
 
 sys.path.insert(0, str(REMOTE_REPO / "skills" / "se-remote"))
 
@@ -60,7 +77,6 @@ class Client:
             "-nosplash",
             "-stablelogs",
             "-sources",
-            "--no-steam",
             "-appdata",
             str(self.appdata),
             "--quality",
@@ -71,6 +87,9 @@ class Client:
             # keeps the game from loading its sounds.
             "--no-audio",
         ]
+        # UNDO_STEAM=1 keeps Steam, for joining a server over Steam networking
+        if os.environ.get("UNDO_STEAM") != "1":
+            args.append("--no-steam")
         # More options for a run by hand, like "--max-fps 30"
         args += os.environ.get("UNDO_EXTRA_ARGS", "").split()
         # UNDO_WINDOWED=1 opens a real window, for checks done by hand
@@ -82,7 +101,7 @@ class Client:
 # side by side: UNDO_SLOT=3 uv run pytest tests/test_terminal.py
 SLOT = int(os.environ.get("UNDO_SLOT", "0"))
 BASE_PULSAR = HOME / ".se-test/undo"
-LAUNCHER = "UndoInterim.bin"
+LAUNCHER = os.environ.get("UNDO_LAUNCHER", "UndoInterim.bin")
 _NAME = "undo" if SLOT == 0 else f"undo-s{SLOT}"
 
 CLIENT = Client(
@@ -766,8 +785,16 @@ def write_configs(client: Client = CLIENT, undo_config: dict | None = None) -> N
     # The Earth world is experimental; a fresh user data folder says it is not
     game_cfg = appdata / "SpaceEngineers.cfg"
     if not game_cfg.exists():
-        shutil.copy(HOME / ".config/SpaceEngineers/SpaceEngineers.cfg", game_cfg)
+        shutil.copy(GAME_CFG, game_cfg)
     text = game_cfg.read_text(encoding="utf-8")
+    if WINDOWS:
+        # --resolution is Linux-only, the window opens at the stored size
+        for key, value in (("ScreenWidth", 1280), ("ScreenHeight", 720)):
+            text = re.sub(
+                rf"(<Key>{key}</Key>\s*<Value>\s*<Value[^>]*>)\w+(</Value>)",
+                rf"\g<1>{value}\2",
+                text,
+            )
     text = re.sub(
         r"(<Key>ExperimentalMode</Key>\s*<Value>\s*<Value[^>]*>)\w+(</Value>)",
         r"\1True\2",
@@ -793,13 +820,41 @@ def ensure_pulsar(client: Client = CLIENT) -> None:
         elif entry.is_file():
             shutil.copy2(entry, target)
     shutil.copytree(
-        BASE_PULSAR / "Legacy",
-        client.pulsar / "Legacy",
+        BASE_PULSAR / PULSAR_DATA,
+        client.pulsar / PULSAR_DATA,
         ignore=shutil.ignore_patterns("Preloader", "info.log"),
     )
 
 
+def windows_pid(marker: str) -> int | None:
+    """The oldest process whose command line has this marker. A Steam client's
+    launcher may come back under a new pid, so the pid file is not trusted."""
+    script = (
+        "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and "
+        f"$_.CommandLine.Contains('{marker}') -and $_.Name -ne 'powershell.exe' }} | "
+        "Sort-Object CreationDate | Select-Object -First 1 -ExpandProperty ProcessId"
+    )
+    out = subprocess.run(
+        ["powershell", "-NoProfile", "-Command", script],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return int(out) if out.isdigit() else None
+
+
+def hide_window(pid: int) -> None:
+    """Moves the client's window off-screen, without waiting for it"""
+    if WINDOWS and HIDE_WINDOW:
+        subprocess.Popen(
+            ["powershell", "-NoProfile", "-File", HIDE_WINDOW, "-ProcessId", str(pid)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+
 def running_pid(client: Client = CLIENT) -> int | None:
+    if WINDOWS:
+        return windows_pid(str(client.appdata))
     try:
         pid = int(client.pid_file.read_text().strip())
         cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
@@ -826,6 +881,7 @@ def launch(client: Client = CLIENT, extra_args=(), undo_config=None) -> int:
         start_new_session=True,
     )
     client.pid_file.write_text(str(process.pid))
+    hide_window(process.pid)
     return process.pid
 
 
@@ -833,6 +889,10 @@ def stop(client: Client = CLIENT) -> None:
     """Stops only the client this rig started."""
     pid = running_pid(client)
     if pid is None:
+        return
+    if WINDOWS:
+        subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+        client.pid_file.unlink(missing_ok=True)
         return
     os.kill(pid, signal.SIGTERM)
     for _ in range(30):
