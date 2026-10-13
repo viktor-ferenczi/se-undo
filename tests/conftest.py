@@ -5,7 +5,7 @@ files do not depend on each other and can run side by side on different client
 slots (rig.SLOT, tests/run_pieces.py). A file changes the plugin options of its
 client with a module level UNDO_CONFIG dict, merged over rig.UNDO_CONFIG; None
 puts an option back to the plugin's default. WORLD_SETTINGS changes session settings
-of the test world the same way.
+of the test world the same way, and EXTRA_GRIDS adds grids to it (rig.prepare_world).
 
 UNDO_ATTACH=1 reuses a client of this slot that is already in the test world, and
 UNDO_KEEP=1 leaves the client running after the run; both help while iterating on
@@ -49,7 +49,10 @@ def game(request):
             # The grid stores of the previous run, keyed by world folder and id
             shutil.rmtree(rig.APPDATA / "Undo" / "Worlds", ignore_errors=True)
             rig.STATUS_FILE.unlink(missing_ok=True)
-            rig.prepare_world(settings=getattr(request.module, "WORLD_SETTINGS", None))
+            rig.prepare_world(
+                settings=getattr(request.module, "WORLD_SETTINGS", None),
+                extra_grids=getattr(request.module, "EXTRA_GRIDS", None),
+            )
             rig.launch(undo_config=config)
             api.wait_for_api(max_wait=240)
             rig.load_world(api)

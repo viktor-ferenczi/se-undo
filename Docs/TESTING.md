@@ -93,6 +93,8 @@ administrator, creative tools on:
   with its subgrid, a block group put back, the refusals for something in the way and
   for a grid the second client deleted, the grid history dialog's Paste and Delete,
   and the histories in the world after an autosave.
+- `test_symmetry_ds.py`, a server with it: every test of `tests/test_symmetry.py`
+  from the first client, whose requests carry the mirror copies.
 - `test_client_without_undo.py`, a server with it and a second client without the
   plugin, which joins once: a client that left and joined again with the same id
   within seconds timed out during the world download.
@@ -133,8 +135,10 @@ The host loads a fresh creative copy of the test world offline, saves it and loa
 again as a friends game; the joined player is an administrator in it, for the
 teleport. `tests/lobby/test_lobby.py` checks that the host's own undo and redo reach
 the joined client (blocks under their old ids, merged parts, re-created grids, block
-groups, programs), and that the host serves the joined player like the companion. The
-joined player's histories are in the host's `Undo/status-players.json`.
+groups, programs), and that the host serves the joined player like the companion.
+`tests/lobby/test_symmetry_lobby.py` runs the tests of `tests/test_symmetry.py` as the
+joined player. The joined player's histories are in the host's
+`Undo/status-players.json`.
 
 ```bash
 uv run python tests/lobby/lobby_rig.py start

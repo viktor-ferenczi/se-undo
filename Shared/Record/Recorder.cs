@@ -7,6 +7,7 @@ using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Blocks;
 using Sandbox.Game.Entities.Cube;
 using Sandbox.Game.Gui;
+using Sandbox.Game.World;
 using Shared.GridStore;
 using Shared.History;
 using Shared.Ops;
@@ -29,6 +30,12 @@ public sealed class Recording
     // A served player's close requests of one frame, captured together
     public DeleteCapture Deleting;
 
+    // With symmetry the cube builder builds and removes a line or an area, and each
+    // of its mirror images, by one request each, in the same frame. The builds and
+    // the removals of one frame on a grid are one node.
+    public RazeCapture Razing;
+    public BuildNode Built;
+
     // A removal waits a frame or two for grid splits, a paste for its grids, before
     // it becomes a node; so does a backup over the budget for the player's answer
     public bool IsBusy => settling.Count != 0 || held != 0;
@@ -49,6 +56,8 @@ public sealed class Recording
         Stroke = null;
         TerminalStroke = null;
         Deleting = null;
+        Razing = null;
+        Built = null;
     }
 
     // Every frame, with the actor as the current one
@@ -178,11 +187,18 @@ public static class Recorder
         List<BlockPlacement> requested
     )
     {
+        // With symmetry a block on a mirror plane is its own mirror image: its cell
+        // is requested twice, maybe turned two ways, and the game builds it once. The
+        // request the block was built from goes first.
         var built = new List<BlockPlacement>();
-        foreach (var placement in requested)
+        foreach (var placement in requested.OrderByDescending(p => BuiltAs(grid, p)))
         {
             var block = grid.BlockAt(placement.Min);
-            if (block == null || block.BlockDefinition.Id.ToString() != placement.Definition)
+            if (
+                block == null
+                || block.BlockDefinition.Id.ToString() != placement.Definition
+                || built.Any(b => b.Min == placement.Min)
+            )
                 continue;
             placement.EntityId = block.FatBlock?.EntityId ?? 0;
             built.Add(placement);
@@ -193,7 +209,15 @@ public static class Recorder
         // The first block of a type brings its terminal controls
         ControlsMayHaveChanged();
         var handle = Handle(grid);
-        Commit(
+        if (Recording.Built is { } last && last.Takes(Actor.Document.Build, handle, colorHsv, skin))
+        {
+            last.Add(built);
+            Log.Debug($"Recorded: {last.Node.Label}, together with the step before");
+            Actor.Changed();
+            return;
+        }
+
+        var node = Commit(
             $"placed {Plural(built.Count, "block")}",
             new List<Op>
             {
@@ -215,13 +239,30 @@ public static class Recorder
                 },
             }
         );
+        Recording.Built = new BuildNode(node);
     }
+
+    private static bool BuiltAs(MyCubeGrid grid, BlockPlacement placement) =>
+        grid.BlockAt(placement.Min) is { } block
+        && block.Orientation.Forward == placement.Forward
+        && block.Orientation.Up == placement.Up;
 
     public static void BeginRaze(MyCubeGrid grid, IEnumerable<Vector3I> positions)
     {
+        var recording = Recording;
+        if (
+            recording.Razing is { } razing
+            && razing.Frame == MySession.Static.GameplayFrameCounter
+            && razing.Grid == grid
+            && razing.Extend(positions)
+        )
+            return;
+
         var capture = RazeCapture.Begin(grid, positions);
-        if (capture != null)
-            Recording.Begin(capture);
+        if (capture == null)
+            return;
+        recording.Begin(capture);
+        recording.Razing = capture;
     }
 
     // Grids a paste or a single block placement created. Redo creates them again from
@@ -408,4 +449,33 @@ public static class Recorder
     // The stroke a color or skin change of this grid belongs to, if one is open
     public static PaintStroke StrokeFor(MyCubeGrid grid) =>
         !Replay.Active && Actor?.Recording.Stroke?.Grid == grid ? Actor.Recording.Stroke : null;
+}
+
+// A placement node that the builds of the same frame on its grid join, see
+// Recording.Built
+public sealed class BuildNode
+{
+    public readonly Node Node;
+    private readonly int frame = MySession.Static.GameplayFrameCounter;
+
+    public BuildNode(Node node) => Node = node;
+
+    private BuildBlocksOp Build => (BuildBlocksOp)Node.Forward[0];
+    private RazeBlocksOp Raze => (RazeBlocksOp)Node.Reverse[0];
+
+    // Still the newest step, nothing undone or recorded since
+    public bool Takes(UndoHistory history, int grid, Vector3 colorHsv, MyStringHash skin) =>
+        frame == MySession.Static.GameplayFrameCounter
+        && history.Current == Node
+        && Node.ChildIds.Count == 0
+        && Build.Grid == grid
+        && Build.ColorHsv == colorHsv
+        && Build.Skin == skin.String;
+
+    public void Add(List<BlockPlacement> built)
+    {
+        Build.Blocks.AddRange(built);
+        Raze.Positions.AddRange(built.Select(b => b.Min));
+        Node.Label = $"placed {Recorder.Plural(Build.Blocks.Count, "block")}";
+    }
 }

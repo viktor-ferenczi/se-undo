@@ -59,14 +59,15 @@ def log(client: rig.Client) -> str:
     return path.read_text(errors="replace") if path.exists() else ""
 
 
-def start_host(timeout: float = 420.0):
+def start_host(timeout: float = 420.0, extra_grids=None):
     """The host loads a fresh creative test world offline, saves it, which writes
     the binary sector a bare XML world lacks, and loads it again as a friends game.
-    Returns its API once its character stands in the world."""
+    Returns its API once its character stands in the world. extra_grids adds
+    grids to the world, see rig.prepare_world."""
     stop()
     for client in (HOST, JOIN):
         shutil.rmtree(client.appdata / "Undo", ignore_errors=True)
-    rig.prepare_world(WORLD)
+    rig.prepare_world(WORLD, extra_grids=extra_grids)
     # The joined player may teleport: an administrator, as the dedicated server rig's
     # clients are
     checkpoint = WORLD / "Sandbox.sbc"

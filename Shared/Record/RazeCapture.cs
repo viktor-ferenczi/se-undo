@@ -3,6 +3,7 @@ using System.Linq;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Blocks;
 using Sandbox.Game.Entities.Cube;
+using Sandbox.Game.World;
 using Shared.GridStore;
 using Shared.History;
 using Shared.Ops;
@@ -20,7 +21,12 @@ public sealed class RazeCapture : ICapture
     private List<MyObjectBuilder_CubeBlock> builders;
     private List<BlockLinks> links;
     private SplitWatch watch;
-    private SpillWatch spill;
+    private readonly List<SpillWatch> spills = new List<SpillWatch>();
+
+    // The frame of the removal request; see Extend
+    public readonly int Frame = MySession.Static.GameplayFrameCounter;
+
+    public MyCubeGrid Grid => grid;
 
     // Set when a removed block is one end of a mechanical connection: the grid's
     // group (StoredGroups.GroupOf) and its builders as they were before the removal. Undo then
@@ -28,12 +34,13 @@ public sealed class RazeCapture : ICapture
     private List<MyCubeGrid> group;
     private List<MyObjectBuilder_CubeGrid> groupBuilders;
 
-    public bool Settled => watch.Settled && (spill == null || spill.Settled);
+    public bool Settled => watch.Settled && spills.All(s => s.Settled);
 
     public void Abort()
     {
         watch.Close();
-        spill?.Close();
+        foreach (var spill in spills)
+            spill.Close();
     }
 
     public static RazeCapture Begin(MyCubeGrid grid, IEnumerable<Vector3I> positions)
@@ -47,7 +54,7 @@ public sealed class RazeCapture : ICapture
             return null;
 
         var group = blocks.Any(NeedsGroupBackup) ? StoredGroups.GroupOf(grid) : null;
-        return new RazeCapture
+        var capture = new RazeCapture
         {
             grid = grid,
             blocks = blocks,
@@ -57,8 +64,38 @@ public sealed class RazeCapture : ICapture
             builders = blocks.Select(b => b.GetObjectBuilder()).ToList(),
             links = BlockLinks.Capture(grid, blocks),
             watch = new SplitWatch(grid),
-            spill = SpillWatch.For(blocks),
         };
+        capture.WatchSpills(blocks);
+        return capture;
+    }
+
+    private void WatchSpills(List<MySlimBlock> removing)
+    {
+        var spill = SpillWatch.For(removing);
+        if (spill != null)
+            spills.Add(spill);
+    }
+
+    // More blocks of the same removal: with symmetry the cube builder removes an area
+    // and each of its mirror images by a request of their own, in one frame. False
+    // when the capture cannot take them: a block that needs the group backup, which
+    // has to be taken before the first of the requests ran; they get a node of their
+    // own then.
+    public bool Extend(IEnumerable<Vector3I> positions)
+    {
+        var more = positions
+            .Select(grid.GetCubeBlock)
+            .Where(b => b != null && b.FatBlock?.IsSubBlock != true && !blocks.Contains(b))
+            .Distinct()
+            .ToList();
+        if (group == null && more.Any(NeedsGroupBackup))
+            return false;
+
+        blocks.AddRange(more);
+        builders.AddRange(more.Select(b => b.GetObjectBuilder()));
+        links.AddRange(BlockLinks.Capture(grid, more));
+        WatchSpills(more);
+        return true;
     }
 
     // Blocks the single block restore cannot bring back the way they were, because
@@ -75,7 +112,7 @@ public sealed class RazeCapture : ICapture
     public void Finish()
     {
         var pieces = watch.Close();
-        var spilled = spill?.Close() ?? new List<long>();
+        var spilled = spills.SelectMany(s => s.Close()).ToList();
         var removed = Enumerable
             .Range(0, blocks.Count)
             .Where(i => grid.GetCubeBlock(blocks[i].Min) != blocks[i])
