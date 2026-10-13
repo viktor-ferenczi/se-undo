@@ -137,10 +137,13 @@ def register_source(sources: Path, name: str, folder: Path, file: str) -> None:
     tree.write(sources, encoding="utf-8", xml_declaration=True)
 
 
-def prepare_world(settings: dict | None = None) -> None:
+def prepare_world(settings: dict | None = None, extra_grids=None) -> None:
     """The offline rig's test world in survival, plus the copy source. settings
-    changes session settings of the world, by element name."""
-    rig.prepare_world(WORLD, mode="Survival", settings=settings)
+    changes session settings of the world, by element name; extra_grids adds
+    grids, see rig.prepare_world."""
+    rig.prepare_world(
+        WORLD, mode="Survival", settings=settings, extra_grids=extra_grids
+    )
     _, forward, up = rig.station_frame()
     source = rig._grid(
         SOURCE_NAME,
@@ -179,14 +182,18 @@ def prepare_world(settings: dict | None = None) -> None:
 
 
 def prepare_server(
-    admin: bool, fresh: bool = True, companion: bool = True, settings=None
+    admin: bool,
+    fresh: bool = True,
+    companion: bool = True,
+    settings=None,
+    extra_grids=None,
 ) -> None:
     """Writes the server's Magnetar config and dedicated config. A fresh server
     also gets a new copy of the world and starts with an empty grid store;
     otherwise the world it saved is kept. Without the companion the server runs
     DirectTransport only."""
     if fresh:
-        prepare_world(settings)
+        prepare_world(settings, extra_grids)
         shutil.rmtree(SERVER_DATA / "Undo", ignore_errors=True)
 
     # Magnetar: the plugin sources of the machine's own instance, with a profile

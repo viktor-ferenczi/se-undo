@@ -2,7 +2,8 @@
 the client as its administrator and creative tools switched on.
 
 A test file sets COMPANION = False for a server without the Undo companion, and
-WORLD_SETTINGS to change session settings of the world by element name. The
+WORLD_SETTINGS to change session settings of the world by element name, and
+EXTRA_GRIDS to add grids to it (rig.prepare_world). The
 second client, without creative tools, joins only for the tests that ask for game2.
 
 UNDO_KEEP=1 leaves the server and the clients running after the run, UNDO_ATTACH=1
@@ -36,6 +37,7 @@ def server(request):
         admin=True,
         companion=companion,
         settings=getattr(request.module, "WORLD_SETTINGS", None),
+        extra_grids=getattr(request.module, "EXTRA_GRIDS", None),
     )
     try:
         ds_rig.start_server()

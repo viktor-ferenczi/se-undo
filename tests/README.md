@@ -18,7 +18,9 @@ its main branch. The terminal tests read programs with Remote's `GetProgram` cal
 (`get_pb_program`), also on its main branch. Every world load waits for the `ready`
 field of Remote's game state, from CometWorks/remote#32. The grid history dialog and
 load menu tests read table rows and click rows and headers through the table API of
-CometWorks/remote#41 (Remote 1.1.0).
+CometWorks/remote#41 (Remote 1.1.0). The symmetry tests set the planes and the symmetry switch through the
+`SetSymmetry` call op and the `cubeBuilderUseSymmetry` game option of
+CometWorks/remote#43.
 
 A Pulsar folder of its own, with only the Remote and Undo dev folders enabled:
 
@@ -70,6 +72,7 @@ about 27 minutes.
 |---|---|
 | `test_build_context.py` | build, raze, referenced blocks, splits, paint, tree option, displaced vanilla keys, the 200 node limit |
 | `test_builder_input.py` | the cube builder with real mouse input: place, remove, a line with Ctrl and a drag, rotated blocks, paint one block, repaint the grid |
+| `test_symmetry.py` | the cube builder with symmetry: one, two and three planes, even and odd, on the station and a small grid plate; a block on a plane, taken mirror cells, mirrored variants and orientations, single and area removal, lines and areas, paint, a later change to one copy |
 | `test_grid_ops.py` | paste, delete, Ctrl-Delete, Ctrl-X, paste into a grid, new grid from one block |
 | `test_grid_store.py` | retention, the budget question (Yes, No, Escape), the grid history dialog |
 | `test_store_policy.py` | "always raise" for oversized backups, the dialog's Paste, Delete and Close buttons |
@@ -90,7 +93,8 @@ about 27 minutes.
 
 A file sets the plugin options of its client with a module level `UNDO_CONFIG`
 dict, merged over `rig.UNDO_CONFIG`; `None` puts an option back to its default.
-`WORLD_SETTINGS` changes session settings of its test world the same way.
+`WORLD_SETTINGS` changes session settings of its test world the same way, and
+`EXTRA_GRIDS(position, forward, up)` returns the XML of more grids to put into it.
 
 ## What a run does
 

@@ -661,10 +661,15 @@ def station_point(cell) -> list[float]:
 
 
 def prepare_world(
-    world: Path = WORLD, mode: str = "Creative", settings: dict | None = None
+    world: Path = WORLD,
+    mode: str = "Creative",
+    settings: dict | None = None,
+    extra_grids=None,
 ) -> Path:
     """Fresh copy of the Remote suite's Earth world with the test station.
-    settings changes session settings of the world, by element name."""
+    settings changes session settings of the world, by element name. extra_grids,
+    called with the station's position, forward and up, returns the XML of more
+    grids to put into the sector."""
     # A grid store an earlier copy of this world left, keyed by folder name and id
     for store in (APPDATA / "Undo" / "Worlds").glob(f"{world.name}*"):
         shutil.rmtree(store)
@@ -707,6 +712,8 @@ def prepare_world(
     grids = station_xml(position, forward, up) + drift_ship_xml(far, forward, up)
     # The links rig floats 60 m above the test station
     grids += links_xml([p + 60 * u for p, u in zip(position, up)], forward, up)
+    if extra_grids:
+        grids += extra_grids(position, forward, up)
     text = text.replace("</SectorObjects>", grids + "</SectorObjects>", 1)
     sector.write_text(text, encoding="utf-8")
 

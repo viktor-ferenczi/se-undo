@@ -2,7 +2,8 @@
 game, then the second client joins it. Both stay up for the whole file.
 
 UNDO_KEEP=1 leaves both running after the run, UNDO_ATTACH=1 reuses them while
-iterating on one file.
+iterating on one file. A test file adds grids to the world with EXTRA_GRIDS
+(rig.prepare_world).
 """
 
 from __future__ import annotations
@@ -21,11 +22,13 @@ KEEP = os.environ.get("UNDO_KEEP") == "1"
 
 
 @pytest.fixture(scope="module")
-def host():
+def host(request):
     if ATTACH and rig.running_pid(lobby_rig.HOST):
         api = rig.api(lobby_rig.HOST)
     else:
-        api = lobby_rig.start_host()
+        api = lobby_rig.start_host(
+            extra_grids=getattr(request.module, "EXTRA_GRIDS", None)
+        )
     try:
         game = Game(api, lobby_rig.HOST.status_file)
         game.world = lobby_rig.WORLD
