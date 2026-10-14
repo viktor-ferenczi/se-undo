@@ -33,6 +33,18 @@ LOADING_S = 150.0
 
 
 def available_gb() -> float:
+    if sys.platform == "win32":
+        import ctypes
+
+        class Status(ctypes.Structure):
+            _fields_ = [("length", ctypes.c_ulong), ("load", ctypes.c_ulong)] + [
+                (name, ctypes.c_ulonglong)
+                for name in ("total", "free", "pt", "pf", "vt", "vf", "ve")
+            ]
+
+        status = Status(length=ctypes.sizeof(Status))
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status))
+        return status.free / 1024**3
     text = Path("/proc/meminfo").read_text()
     return int(re.search(r"MemAvailable:\s+(\d+)", text).group(1)) / 1024 / 1024
 

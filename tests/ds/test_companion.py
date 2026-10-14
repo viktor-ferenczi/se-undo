@@ -468,6 +468,7 @@ def test_the_history_survives_a_server_restart(game):
     game.api.character_grid_event(game.station, cell, "raze")
     game.wait_recorded(last, "removed 1 block")
 
+    ds_rig.save_world(game.api)
     ds_rig.stop_client()
     ds_rig.stop_server()
     assert (ds_rig.WORLD / "UndoPlayers.xml.gz").exists()
@@ -477,6 +478,12 @@ def test_the_history_survives_a_server_restart(game):
     api.set_admin_flag("creativeTools", True)
     game.api = api
     wait_until(lambda: game.status().get("companion"), "the handshake")
+    # The rejoined client may not have the station yet (seen on Windows)
+    wait_until(
+        lambda: any(g["entityId"] == game.station for g in game.grids()),
+        "the station to stream in",
+        timeout=120,
+    )
 
     assert game.build()["nodes"][-1]["label"] == "removed 1 block"
     assert game.undo() == "Undo: removed 1 block"

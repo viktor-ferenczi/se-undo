@@ -18,7 +18,7 @@ import pytest
 
 import ds_rig
 import rig
-from harness import Game
+from harness import Game, wait_until
 
 ATTACH = os.environ.get("UNDO_ATTACH") == "1"
 KEEP = os.environ.get("UNDO_KEEP") == "1"
@@ -59,6 +59,12 @@ def game(server):
     api = _join(ds_rig.CLIENT, ds_rig.start_client)
     flag = api.set_admin_flag("creativeTools", True)
     assert flag["promoteLevel"] == "Owner" and flag["creativeToolsEnabled"]
+    # The station may not have streamed in yet, seen on Windows over Steam
+    wait_until(
+        lambda: any(g.get("name") == rig.STATION_NAME for g in api.list_grids()),
+        "the station to stream in",
+        timeout=120,
+    )
     if server:
         return ds_rig.ServedGame(api, ds_rig.CLIENT, ds_rig.CLIENT_ID)
     return Game(api, ds_rig.CLIENT.status_file)

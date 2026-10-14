@@ -126,3 +126,47 @@ use to look at the game and to drive it, `conftest.py` starts the client per fil
 `UNDO_KEEP=1` leaves the client running, `UNDO_ATTACH=1` reuses it on the next
 run of the same file. `UNDO_WINDOWED=1` starts it with a real window, for checks done
 by hand, and `UNDO_EXTRA_ARGS` adds launcher options.
+
+## Windows
+
+The rigs also run on Windows with Pulsar Legacy (.NET Framework 4.8) or Interim. The
+Windows parts switch on by platform; nothing changes on Linux. Run them from Git Bash
+or PowerShell with `uv run`, and set these environment variables as needed:
+
+| Variable | Meaning |
+| --- | --- |
+| `UNDO_REMOTE_REPO` | The Remote plugin repo, if it is not next to this one |
+| `UNDO_LAUNCHER` | Launcher exe in the Pulsar folder, default `Legacy.exe` |
+| `UNDO_PULSAR_DATA` | The Pulsar data folder next to the launcher, `Legacy` (default) or `Interim` |
+| `UNDO_GAME_CFG` | The `SpaceEngineers.cfg` that seeds the client, default `%APPDATA%\SpaceEngineers\SpaceEngineers.cfg` |
+| `UNDO_HIDE_WINDOW_SCRIPT` | A PowerShell script taking `-ProcessId`, run after the launch to move the client window off the desktop |
+
+Differences from Linux:
+
+- The set up above is the same, with a Pulsar folder made by hand and the launcher
+  copied to the name in `UNDO_LAUNCHER`. `~` is your user profile folder.
+- There is no `--headless`; the client opens a real window (set to 1280x720). Use
+  `UNDO_HIDE_WINDOW_SCRIPT` to keep it out of the way.
+- Processes are found by command line and stopped with `taskkill`. Windows has no
+  graceful stop for Magnetar, so the restart test saves with `!save` first.
+- The wait helpers retry when the game still holds a file open (a sharing violation
+  during a save) instead of failing.
+
+The dedicated server rig (`ds/`) also takes:
+
+| Variable | Meaning |
+| --- | --- |
+| `UNDO_MAGNETAR_DIR` | The Magnetar folder holding the exe |
+| `UNDO_MAGNETAR_EXE` | `MagnetarLegacy.exe` or `MagnetarInterim.exe` |
+| `UNDO_MAGNETAR_TEMPLATE` | The Magnetar instance whose plugin sources the server copies |
+| `UNDO_DS_CONFIG_TEMPLATE` | The `SpaceEngineers-Dedicated.cfg` to start from |
+| `UNDO_MP_LAUNCHER` | Launcher exe of the multiplayer client |
+| `UNDO_MP_CLIENT_ID` | Steam id of the client when it joins over Steam |
+| `UNDO_DIRECT_TRANSPORT` | `0` joins over Steam networking (`+connect`), which the .NET Framework loaders need; DirectTransport is .NET only |
+| `UNDO_STEAM` | `1` keeps Steam enabled in the client, needed with `UNDO_DIRECT_TRANSPORT=0` |
+| `UNDO_STEAM_CONNECT` | `host:port` for `+connect`, default `127.0.0.1:<server port>` |
+
+Over Steam the client is the Steam account's own id, so `UNDO_MP_CLIENT_ID` has to be
+that id for the admin and creative tools steps. On Interim with DirectTransport the
+`--client-id` option is ignored on Windows, see SE1-0170; the client runs as
+1234567891011 and `UNDO_MP_CLIENT_ID=1234567891011` matches it.
