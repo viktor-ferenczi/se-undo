@@ -93,7 +93,8 @@ class Client:
         # More options for a run by hand, like "--max-fps 30"
         args += os.environ.get("UNDO_EXTRA_ARGS", "").split()
         # UNDO_WINDOWED=1 opens a real window, for checks done by hand
-        return args if WINDOWED else args + ["--headless"]
+        # Headless is Linux only; on Windows the window is moved off-screen instead
+        return args if WINDOWED or WINDOWS else args + ["--headless"]
 
 
 # Slot 0 is the Pulsar folder set up by hand (tests/README.md). Every further slot is
@@ -101,7 +102,9 @@ class Client:
 # side by side: UNDO_SLOT=3 uv run pytest tests/test_terminal.py
 SLOT = int(os.environ.get("UNDO_SLOT", "0"))
 BASE_PULSAR = HOME / ".se-test/undo"
-LAUNCHER = os.environ.get("UNDO_LAUNCHER", "UndoInterim.bin")
+LAUNCHER = os.environ.get(
+    "UNDO_LAUNCHER", "Legacy.exe" if WINDOWS else "UndoInterim.bin"
+)
 _NAME = "undo" if SLOT == 0 else f"undo-s{SLOT}"
 
 CLIENT = Client(

@@ -37,6 +37,8 @@ copies the Remote plugin's Earth world, adds the test grids and loads it.
 
 `UNDO_KEEP=1` leaves the client of a file running, `UNDO_ATTACH=1` reuses it.
 
+The rigs also run on Windows, see the Windows section of [tests/README.md](../tests/README.md#windows).
+
 ## Dedicated server rig
 
 One time setup, a second Pulsar folder for the client that joins the server:
