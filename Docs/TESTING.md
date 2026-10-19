@@ -44,7 +44,7 @@ The rigs also run on Windows, see the Windows section of [tests/README.md](../te
 One time setup, a second Pulsar folder for the client that joins the server:
 
 ```bash
-~/ws/se/notes/pulsar-dev-instances/new-pulsar-instance.sh ~/.se-test/undo-mp
+~/ws/se/testing/pulsar-dev-instances/new-pulsar-instance.sh ~/.se-test/undo-mp
 ```
 
 ```bash
