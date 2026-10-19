@@ -1,6 +1,6 @@
 """Lobby rig for the Undo tests: one headless client hosts the test world as a
 friends game, another joins it, both over DirectTransport and without Steam
-(SE1-0076, the workspace's se1/notes/direct-transport-lobby-rig). Both run Undo.
+(SE1-0076, workspace note #615, direct-transport-lobby-rig). Both run Undo.
 The host records and replays its own steps like offline, and serves the joined
 player the way the companion does on a dedicated server (design section 14).
 

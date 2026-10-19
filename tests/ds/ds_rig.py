@@ -1,6 +1,6 @@
 """Dedicated server rig for the Undo tests: a Magnetar server with DirectTransport
 and the Undo companion, and up to two headless clients that join it, all isolated
-from everything else on the machine (se/notes/game-test-instance-modes, mode A).
+from everything else on the machine (se/testing/game-test-instance-modes, mode A).
 
 Server: Magnetar config folder and DS data folder under ~/.se-test/undo-ds, UDP port
 27116. It compiles the companion from this repo (UndoServer.xml) as a dev folder.

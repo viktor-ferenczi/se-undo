@@ -25,7 +25,7 @@ CometWorks/remote#43.
 A Pulsar folder of its own, with only the Remote and Undo dev folders enabled:
 
 ```bash
-~/ws/se/notes/pulsar-dev-instances/new-pulsar-instance.sh ~/.se-test/undo
+~/ws/se/testing/pulsar-dev-instances/new-pulsar-instance.sh ~/.se-test/undo
 cp -p ~/.se-test/undo/Interim.bin ~/.se-test/undo/UndoInterim.bin
 ```
 

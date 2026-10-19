@@ -6,7 +6,7 @@ Interim.bin, so nothing that stops "Interim.bin" by name takes this client down.
 
 Pulsar folder, created once by hand (see tests/README.md)::
 
-    notes/pulsar-dev-instances/new-pulsar-instance.sh ~/.se-test/undo
+    testing/pulsar-dev-instances/new-pulsar-instance.sh ~/.se-test/undo
     # profile trimmed to the remote and Undo dev folders, UndoInterim.bin copied
 """
 
@@ -808,7 +808,7 @@ def write_configs(client: Client = CLIENT, undo_config: dict | None = None) -> N
 
 def ensure_pulsar(client: Client = CLIENT) -> None:
     """Clones the Pulsar folder of slot 0 for another slot, the way
-    notes/pulsar-dev-instances/new-pulsar-instance.sh does: launcher files copied,
+    testing/pulsar-dev-instances/new-pulsar-instance.sh does: launcher files copied,
     the large read only trees linked, the plugin sources, profile and build cache
     copied, the Preloader folder left for the first launch to create."""
     if client.launcher.exists():
