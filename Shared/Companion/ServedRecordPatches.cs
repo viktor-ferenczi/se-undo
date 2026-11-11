@@ -73,6 +73,13 @@ public static class ServedRecordPatches
             return 0;
         });
 
+    // The served player is the current actor here
+    private static void BeforeEdit(MyCubeGrid grid, List<BlockPlacement> requested)
+    {
+        if (requested is { Count: > 0 })
+            Try(() => Recorder.BeforeEdit(grid));
+    }
+
     // --- building and removing blocks ----------------------------------------------
 
     [HarmonyPatch(typeof(MyCubeGrid), nameof(MyCubeGrid.BuildBlocksRequest))]
@@ -105,6 +112,7 @@ public static class ServedRecordPatches
                             : null
                     )
             );
+            BeforeEdit(__instance, __state.Item2);
         }
 
         private static void Postfix(
@@ -145,6 +153,7 @@ public static class ServedRecordPatches
                     ? null
                     : Try(() => Recorder.CanRecord ? Placements(__instance, area) : null)
             );
+            BeforeEdit(__instance, __state.Requested);
         }
 
         private static void Postfix(
@@ -312,6 +321,8 @@ public static class ServedRecordPatches
                         Recorder.CanRecord ? new HashSet<MySlimBlock>(__instance.CubeBlocks) : null
                     )
             );
+            if (__state.Before != null)
+                Try(() => Recorder.BeforeEdit(__instance));
         }
 
         private static void Postfix(

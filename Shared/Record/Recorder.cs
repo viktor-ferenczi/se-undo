@@ -27,6 +27,9 @@ public sealed class Recording
     public TerminalStroke TerminalStroke;
     private int held;
 
+    // Which grids were edited lately, for the snapshots taken before edits
+    public readonly SnapshotSchedule Snapshots = new SnapshotSchedule();
+
     // A served player's close requests of one frame, captured together
     public DeleteCapture Deleting;
 
@@ -53,6 +56,7 @@ public sealed class Recording
             capture.Abort();
         settling.Clear();
         held = 0;
+        Snapshots.Clear();
         Stroke = null;
         TerminalStroke = null;
         Deleting = null;
@@ -173,6 +177,10 @@ public static class Recorder
             ? row.MainGridName
             : $"{row.MainGridName} and {Plural(row.GridCount - 1, "more grid")}";
 
+    // Every recorded edit of a grid calls this before the grid changes, or with the
+    // first change for the terminal; it may back the grid up first
+    public static void BeforeEdit(MyCubeGrid grid) => GridSnapshots.BeforeEdit(grid);
+
     public static int Handle(MyCubeGrid grid) => Actor.Document.Grids.GetOrAdd(grid.EntityId);
 
     public static string Plural(int count, string noun) =>
@@ -249,6 +257,7 @@ public static class Recorder
 
     public static void BeginRaze(MyCubeGrid grid, IEnumerable<Vector3I> positions)
     {
+        BeforeEdit(grid);
         var recording = Recording;
         if (
             recording.Razing is { } razing
@@ -343,6 +352,7 @@ public static class Recorder
         string newValue
     )
     {
+        BeforeEdit(block.CubeGrid);
         var blockRef = BlockRef.From(block, Actor.Document.Grids);
         var name = block.DisplayNameText;
         RecordTerminal(
@@ -365,6 +375,7 @@ public static class Recorder
 
     public static void RecordGridName(MyCubeGrid grid, string oldName, string newName)
     {
+        BeforeEdit(grid);
         var handle = Handle(grid);
         RecordTerminal(
             "grid name",
@@ -378,6 +389,7 @@ public static class Recorder
 
     public static void RecordProgram(MyProgrammableBlock block, string oldSource, string newSource)
     {
+        BeforeEdit(block.CubeGrid);
         var blockRef = BlockRef.From(block, Actor.Document.Grids);
         var name = block.DisplayNameText;
         RecordTerminal(
@@ -392,6 +404,7 @@ public static class Recorder
 
     public static void RecordCustomData(MyTerminalBlock block, string oldData, string newData)
     {
+        BeforeEdit(block.CubeGrid);
         var blockRef = BlockRef.From(block, Actor.Document.Grids);
         var name = block.DisplayNameText;
         RecordTerminal(
@@ -418,6 +431,7 @@ public static class Recorder
         string newItem
     )
     {
+        BeforeEdit(block.CubeGrid);
         var blockRef = BlockRef.From(block, Actor.Document.Grids);
         var name = block.DisplayNameText;
         RecordTerminal(
@@ -439,6 +453,7 @@ public static class Recorder
 
     public static void OpenStroke(MyCubeGrid grid)
     {
+        BeforeEdit(grid);
         var recording = Recording;
         if (recording.Stroke != null && recording.Stroke.Grid != grid)
             Flush();

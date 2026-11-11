@@ -65,6 +65,30 @@ public class UndoServerConfig : PluginConfig, IUndoOptions
         set => SetField(ref field, value);
     } = GridLinkTypeEnum.Logical;
 
+    [IntOption(
+        0,
+        86400,
+        "Back up a grid's whole group before a player's first edit after this many seconds without one, 0 for never",
+        Parent = "store"
+    )]
+    public int GridSnapshotIntervalS
+    {
+        get;
+        set => SetField(ref field, value);
+    } = 900;
+
+    [IntOption(
+        1,
+        1000,
+        "Backups taken before edits that each grid keeps per player",
+        Parent = "store"
+    )]
+    public int GridSnapshotsPerGrid
+    {
+        get;
+        set => SetField(ref field, value);
+    } = 10;
+
     [StringOption(
         description: "Folder of the grid store and the status file, empty means <instance>/Undo",
         Parent = "store"

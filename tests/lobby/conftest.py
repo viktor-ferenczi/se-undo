@@ -27,7 +27,8 @@ def host(request):
         api = rig.api(lobby_rig.HOST)
     else:
         api = lobby_rig.start_host(
-            extra_grids=getattr(request.module, "EXTRA_GRIDS", None)
+            extra_grids=getattr(request.module, "EXTRA_GRIDS", None),
+            config=getattr(request.module, "UNDO_CONFIG", None),
         )
     try:
         game = Game(api, lobby_rig.HOST.status_file)

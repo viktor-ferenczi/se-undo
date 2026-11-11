@@ -199,6 +199,7 @@ def prepare_server(
     companion: bool = True,
     settings=None,
     extra_grids=None,
+    undo_config=None,
 ) -> None:
     """Writes the server's Magnetar config and dedicated config. A fresh server
     also gets a new copy of the world and starts with an empty grid store;
@@ -258,7 +259,8 @@ def prepare_server(
     SERVER_DATA.mkdir(parents=True, exist_ok=True)
     (SERVER_DATA / "SpaceEngineers-Dedicated.cfg").write_text(text, encoding="utf-8")
 
-    options = "".join(f"  <{k}>{v}</{k}>\n" for k, v in SERVER_UNDO_CONFIG.items())
+    config = {**SERVER_UNDO_CONFIG, **(undo_config or {})}
+    options = "".join(f"  <{k}>{v}</{k}>\n" for k, v in config.items())
     (SERVER_DATA / "Undo.cfg").write_text(
         '<?xml version="1.0" encoding="utf-8"?>\n'
         f"<UndoServerConfig>\n{options}</UndoServerConfig>\n",

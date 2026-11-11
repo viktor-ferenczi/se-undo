@@ -573,7 +573,7 @@ Keen's serializer output without the byte order mark. An entry is written to a `
 file and renamed, the index likewise; an index that does not parse is copied to
 `index.xml.bad` and the store starts a new one rather than overwriting it.
 
-Index row: id, UTC timestamp, reason (deleted, pasted, placed, snapshot; "split" in
+Index row: id, UTC timestamp, reason (deleted, pasted, placed, snapshot, edited; "split" in
 stores written by 0.1.0 clients), main grid name (the grid with the most blocks), grid
 count, total block count, PCU (sum of definition PCU), grid size class (large, small,
 mixed), static or dynamic, main grid entity id, compressed bytes. Everything is
@@ -680,6 +680,57 @@ same way, and Delete asks the server to remove the entry. The server never asks 
 an oversized backup: it drops it, the node becomes a barrier, and its budgets stay as
 the server's config has them.
 
+### Snapshots before edits
+
+Added in 0.3.0 (SE-1360). Every grid a player edits gets a backup of its whole group
+(`StoredGroups.GroupOf`, the group link type of section 7), so there is something to
+go back to when damage happens that undo cannot take back. The backup is taken right
+before the first edit of the grid in the session, and again before the first edit
+after a pause longer than "Grid snapshot interval s" (900 by default, 0 turns
+snapshots off). The pause counts from the last edit, not from the last snapshot, and
+an edit marks every grid of the group, so a subgrid edited a minute after its
+carrier is not backed up again (`SnapshotSchedule`, no game references).
+
+What counts as an edit is what the plugin records, and only where it records: placing
+blocks (single, line, area, a paste into the grid), removing them, painting and
+skins, and the terminal (properties, names, Custom Data, toolbars, programs), plus
+the edits of other plugins through the API (`RecordRemoval`, and `BeforeEdit` for
+the ones that change a grid by their own means, section 15). A replay of undo or
+redo is no edit. The block and paint hooks call `Recorder.BeforeEdit` in their
+prefixes, before the grid changes. The terminal hooks call it when they record, after
+the first change: the snapshot then has that one value changed already.
+
+On the game thread the backup is only `StoredGroups.Capture`, the builders, which
+need the live grids. Making the blueprint XML, its hash and the gzip file runs on a
+worker thread (`Task.Run`), and the row is committed on the game thread a frame later
+through `MySandboxGame.Invoke`, so the index is only ever touched there. A commit
+that arrives after the session ended deletes the staged file. A backup over a budget
+is dropped without asking: it is no undo step, nothing depends on it. Each committed
+snapshot is logged with the time it took on and off the game thread.
+
+Rows have the reason Edited. Beyond the byte budgets above, each grid keeps the newest
+"Grid snapshots per grid" (10) of them, by main grid entity id; older ones are
+removed when a new one is committed (`GridStoreFolder.TrimEdited`).
+
+On a dedicated server and on a lobby host the snapshots of a served player are taken
+by the server, into that player's grid store, with the server's interval and count
+(section 14). A player whose client does not run Undo is not recorded and gets none.
+
+### Restore in place
+
+The dialog's Restore button puts the selected backup back where it was: one step of
+the build history, labeled "restored <grid> from <local time>" (`GridRestore`). The
+forward op is a `GroupSnapshotOp` of the backup, which closes the grids of it that
+exist now, with whatever joined their group since, and creates the backup again under
+its own ids. The reverse is another `GroupSnapshotOp`, of a backup of the current
+grids taken right before (reason Snapshot), or a `CloseGridsOp` when none of them
+exists any more. The node is recorded as undone and then redone through the executor,
+so the restore is checked and reported like any other step, as "Grid history:
+restored ...". It works for every row, not only snapshots: a deleted grid comes back
+at its old place too. On a client of a server the button sends the row's id (message
+Restore) and the server restores for the player. A restore is no edit and takes no
+snapshot of its own.
+
 ## 10. Applying an action
 
 `Executor.Undo()` / `Redo()` run on the main thread from the key handlers:
@@ -732,6 +783,8 @@ other tunables.
 | Grid store budget total MB | 2048 | Section 9 retention, whole storage root |
 | Budget raise step MB | 64 | Granularity when a budget is raised for an oversized entry |
 | Oversized grid backups | Ask | Ask, Always raise, Never store; section 9 |
+| Grid snapshot interval s | 900 | A grid is backed up before the first edit after this many seconds without one; 0 turns it off; section 9 |
+| Grid snapshots per grid | 10 | Snapshots taken before edits that each grid keeps |
 | Grid history binding | Ctrl-H | Opens the recovery dialog in the Build context; takes Ctrl-H from the vanilla render profiler there, which stays on Ctrl-Shift-H |
 | Grid history sort keys | Time descending | Saved column sort history of the dialog, stored as comma separated column names with a leading `-` for descending (`-Time`); no control in the config dialog |
 | Undo tree | off | Keep abandoned branches |
@@ -762,6 +815,7 @@ config (`UndoServerConfig`), so Quasar can show and edit it:
 | Grid store budget per player MB | 256 | Section 9 retention, per served player |
 | Grid store budget total MB | 4096 | All players of all worlds under the store folder |
 | Group link type for snapshots | Logical | As on the client |
+| Grid snapshot interval s, Grid snapshots per grid | 900, 10 | As on the client, for every served player |
 | Store folder | `<instance>/Undo` | Root of the grid store and of the status file |
 | Pending operation timeout s, Paint stroke timeout ms, Text coalescing window ms | 5, 300, 500 | As on the client |
 | Debug status file | off | Writes `status-players.json` into the store folder after every change, for the tests: every served player's histories, last answer and connection |
@@ -1198,6 +1252,7 @@ the mod API.
 | State | server | whether the build history has nothing to undo |
 | Terminal | client | the terminal screen opened or closed |
 | Backups, Fetch, Part, Delete | both | the grid history dialog's rows, a backup file in parts of 60000 bytes, a removal |
+| Restore | client | put a backup back in place (section 9); answered with a Notice |
 
 The client sends Hello when a session starts where it is not the server, and again
 when the player changes the options (at most once a second). Without a Welcome within

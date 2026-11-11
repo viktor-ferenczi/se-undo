@@ -80,6 +80,7 @@ public static class UndoApi
                 ulong,
                 bool
             >(RecordRemoval),
+            ["BeforeEdit"] = new Func<IMyCubeGrid, ulong, bool>(BeforeEdit),
             ["AddStep"] = new Func<string, string, string, string, ulong, bool>(AddStep),
             ["RegisterStepHandler"] = new Action<string, Func<string, ulong, string>>(
                 RegisterStepHandler
@@ -116,6 +117,7 @@ public static class UndoApi
             steamId,
             () =>
             {
+                Recorder.BeforeEdit(cubeGrid);
                 var capture = RazeCapture.Begin(
                     cubeGrid,
                     positions,
@@ -125,6 +127,19 @@ public static class UndoApi
                 if (capture == null)
                     return false;
                 Recorder.Begin(capture);
+                return true;
+            }
+        );
+
+    // Before the caller changes the grid by its own means; backs the grid's group up
+    // when it is due, the same as before the player's own edits
+    private static bool BeforeEdit(IMyCubeGrid grid, ulong steamId) =>
+        grid is MyCubeGrid cubeGrid
+        && Run(
+            steamId,
+            () =>
+            {
+                Recorder.BeforeEdit(cubeGrid);
                 return true;
             }
         );

@@ -97,6 +97,9 @@ administrator, creative tools on:
   and the histories in the world after an autosave.
 - `test_symmetry_ds.py`, a server with it: every test of `tests/test_symmetry.py`
   from the first client, whose requests carry the mirror copies.
+- `test_snapshots_ds.py`, a server with it: every test of `tests/test_snapshots.py`,
+  with the snapshots in the server's grid store of the player and the restore asked
+  for through the dialog; `SERVER_UNDO_CONFIG` sets the companion's interval.
 - `test_client_without_undo.py`, a server with it and a second client without the
   plugin, which joins once: a client that left and joined again with the same id
   within seconds timed out during the world download.
@@ -139,7 +142,8 @@ teleport. `tests/lobby/test_lobby.py` checks that the host's own undo and redo r
 the joined client (blocks under their old ids, merged parts, re-created grids, block
 groups, programs), and that the host serves the joined player like the companion.
 `tests/lobby/test_symmetry_lobby.py` runs the tests of `tests/test_symmetry.py` as the
-joined player. The joined player's histories are in the host's
+joined player. `tests/lobby/test_snapshots_lobby.py` and `test_snapshots_host.py` run
+the tests of `tests/test_snapshots.py` as the joined player and as the host. The joined player's histories are in the host's
 `Undo/status-players.json`.
 
 ```bash

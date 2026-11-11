@@ -49,6 +49,8 @@ public static class BuildContextPatches
                         EntityId = l.EntityId,
                     })
                     .ToList();
+            if (__state is { Count: > 0 })
+                Recorder.BeforeEdit(__instance);
         }
 
         private static void Postfix(
@@ -79,6 +81,8 @@ public static class BuildContextPatches
         )
         {
             __state = Recorder.CanRecord ? ServedRecordPatches.Placements(__instance, area) : null;
+            if (__state is { Count: > 0 })
+                Recorder.BeforeEdit(__instance);
         }
 
         private static void Postfix(

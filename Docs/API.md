@@ -51,6 +51,7 @@ from another thread. Steps are never recorded on a client of a server.
 | `Version` | `Func<int>` | The API version, 1. A later version only adds functions |
 | `IsRecording` | `Func<ulong, bool>` | Whether a step of the player would be recorded now |
 | `RecordRemoval` | `Func<IMyCubeGrid, List<Vector3I>, List<IMyCubeGrid>, string, ulong, bool>` | Grid, block positions (any cell of each block), grids you close along with them, label, Steam id. See below |
+| `BeforeEdit` | `Func<IMyCubeGrid, ulong, bool>` | Grid, Steam id. Call it right before you change a grid by your own means; see below |
 | `AddStep` | `Func<string, string, string, string, ulong, bool>` | Owner, label, undo data, redo data, Steam id. See below |
 | `RegisterStepHandler` | `Action<string, Func<string, ulong, string>>` | Owner and the handler that applies its steps; null removes it |
 
@@ -69,6 +70,14 @@ subgrids your removal would leave without a connection. A removal with such grid
 one that takes a rotor, hinge, piston or connector apart, and one that removes
 every block of the grid is undone by putting the grid's whole group back from a
 backup, the same way as Undo's own removals of mechanical blocks.
+
+### BeforeEdit
+
+Undo backs up a grid's whole group before the player's first edit of it, and again
+after a pause in editing (15 minutes by default), so the grid history has a recent
+copy to restore. `RecordRemoval` counts as an edit by itself. If you change a grid in
+another way, such as painting, call `BeforeEdit` once before you start, for each grid
+you are about to change. It is cheap when no backup is due.
 
 ### AddStep and RegisterStepHandler
 

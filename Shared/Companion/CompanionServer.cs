@@ -264,6 +264,7 @@ public static class CompanionServer
             MessageType.Hello => 5,
             MessageType.Backups => 5,
             MessageType.Fetch => 10,
+            MessageType.Restore => 10,
             _ => 1,
         };
 
@@ -368,6 +369,10 @@ public static class CompanionServer
                 foreach (var row in actor.Store.Index.Rows.Where(r => r.Id == id).ToList())
                     actor.Store.Remove(row);
                 SendRows(actor);
+                break;
+
+            case MessageType.Restore:
+                GridStore.GridRestore.Restore(reader.ReadString());
                 break;
         }
     }

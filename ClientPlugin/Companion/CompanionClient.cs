@@ -146,6 +146,9 @@ public static class CompanionClient
     public static void Delete(string id) =>
         Send(Protocol.Write(MessageType.Delete, w => w.Write(id)));
 
+    public static void Restore(string id) =>
+        Send(Protocol.Write(MessageType.Restore, w => w.Write(id)));
+
     private static void Send(byte[] message) =>
         MyAPIGateway.Multiplayer?.SendMessageToServer(Protocol.Channel, message, true);
 
