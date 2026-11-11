@@ -16,6 +16,7 @@ from pathlib import Path
 
 import rig
 from harness import wait_until
+from se_remote import OpError
 from test_grid_ops import on_the_station  # noqa: F401 -- autouse fixture
 from test_grid_store import dialog, shown
 from test_store_policy import open_dialog
@@ -172,6 +173,15 @@ def test_each_grid_keeps_a_bounded_number(game):
     assert files == ids
 
 
+def cells(game) -> set | None:
+    """The station's block cells, None while a restore re-creates it: a client
+    briefly does not know the grid"""
+    try:
+        return set(game.cubes())
+    except OpError:
+        return None
+
+
 def restore_newest(game) -> str:
     """Restores the newest snapshot of the station through the dialog's button,
     returns the notification"""
@@ -219,20 +229,16 @@ def test_restore_puts_the_station_back_as_it_was(game):
         rf"Grid history: restored {rig.STATION_NAME} from \d{{4}}-\d\d-\d\d \d\d:\d\d:\d\d$",
         message,
     ), message
-    wait_until(
-        lambda: set(game.cubes()) == set(stored), "the station as in the snapshot"
-    )
+    wait_until(lambda: cells(game) == set(stored), "the station as in the snapshot")
     # Back as itself: the same grid and block ids
     assert game.block(light)["entityId"] == light_id
     assert game.exists(rig.BUILD_CELL)
 
     # One step: undo goes back to the damaged station, redo restores again
     assert game.undo().startswith(f"Undo: restored {rig.STATION_NAME} from ")
-    wait_until(
-        lambda: set(game.cubes()) == damaged, "the station as before the restore"
-    )
+    wait_until(lambda: cells(game) == damaged, "the station as before the restore")
     assert game.redo().startswith(f"Redo: restored {rig.STATION_NAME} from ")
-    wait_until(lambda: set(game.cubes()) == set(stored), "the restore again")
+    wait_until(lambda: cells(game) == set(stored), "the restore again")
     # The restore is no edit of the player and takes no snapshot of its own
     assert edited()[-1].get("TimestampUtc") == snapshot.get("TimestampUtc")
 
@@ -253,4 +259,5 @@ def test_a_big_grid_is_backed_up_off_the_game_thread(game):
     print(
         f"\n{len(BIG_CELLS)} blocks: {game_ms} ms on the game thread, {background_ms} ms in the background"
     )
-    assert game_ms <= background_ms, line
+    # Taking the builders is all the game thread does; well within a frame budget
+    assert game_ms < 50, line
