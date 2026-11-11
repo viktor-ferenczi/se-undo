@@ -29,9 +29,10 @@ public class RazeBlocksOp : Op
     public List<Vector3I> Positions = new List<Vector3I>();
     public List<SplitPiece> Pieces = new List<SplitPiece>();
 
-    // Set on the undo of a placement. A rotor, hinge, piston or suspension brings
-    // its top part along as a grid of its own when it is placed; removing the base
-    // alone would leave that part lying around.
+    // Set on the undo of a placement or of a paste into a grid. A rotor, hinge,
+    // piston or suspension brings its top part along as a grid of its own when it
+    // is placed or pasted without one; removing the base alone would leave that
+    // part lying around.
     public bool WithTopParts;
 
     public override string Validate(GridRegistry grids) =>

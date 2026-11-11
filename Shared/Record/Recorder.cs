@@ -322,7 +322,14 @@ public static class Recorder
             },
             new List<Op>
             {
-                new RazeBlocksOp { Grid = handle, Positions = added.Select(b => b.Min).ToList() },
+                // A pasted rotor, hinge or piston base without its top part gets a
+                // new one as a grid of its own, which the undo removes with it
+                new RazeBlocksOp
+                {
+                    Grid = handle,
+                    Positions = added.Select(b => b.Min).ToList(),
+                    WithTopParts = true,
+                },
             }
         );
     }
