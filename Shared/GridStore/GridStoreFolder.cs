@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Xml.Serialization;
@@ -14,6 +15,9 @@ public enum StoreReason
     Pasted,
     Placed,
     Snapshot,
+
+    // Taken before the player edited the grid, after a pause, see GridSnapshots
+    Edited,
 }
 
 public enum GridSizeClass
@@ -178,6 +182,24 @@ public sealed class GridStoreFolder
         if (saveIndex)
             SaveIndex();
         return freed;
+    }
+
+    // Keeps the newest snapshots taken before edits of a grid, removes the older
+    // ones. Returns the number of rows removed.
+    public int TrimEdited(long mainGridEntityId, int keep)
+    {
+        var old = Index
+            .Rows.Where(r =>
+                r.Reason == StoreReason.Edited && r.MainGridEntityId == mainGridEntityId
+            )
+            .OrderByDescending(r => r.TimestampUtc)
+            .Skip(Math.Max(keep, 0))
+            .ToList();
+        foreach (var row in old)
+            Remove(row, saveIndex: false);
+        if (old.Count != 0)
+            SaveIndex();
+        return old.Count;
     }
 
     // Null when the entry file is gone

@@ -12,7 +12,8 @@ using VRageMath;
 namespace Shared.Record;
 
 // Holding the paint button repaints every frame; everything painted on one grid
-// until the stroke timeout passes without a call becomes one node
+// until the stroke timeout passes without a call becomes one node. A plugin's
+// stroke (UndoApi.RecordPaint) covers several grids and has its own label.
 public sealed class PaintStroke
 {
     private struct Change
@@ -23,13 +24,30 @@ public sealed class PaintStroke
         public MyStringHash NewSkin;
     }
 
-    public readonly MyCubeGrid Grid;
-    private readonly Dictionary<Vector3I, Change> changes = new Dictionary<Vector3I, Change>();
+    private readonly Dictionary<MyCubeGrid, Dictionary<Vector3I, Change>> changes =
+        new Dictionary<MyCubeGrid, Dictionary<Vector3I, Change>>();
     private DateTime lastUtc;
 
-    public PaintStroke(MyCubeGrid grid)
+    // Null for the player's own painting: "painted N blocks"
+    public string Label;
+
+    public PaintStroke(IEnumerable<MyCubeGrid> grids, string label = null)
     {
-        Grid = grid;
+        Add(grids);
+        Label = label;
+    }
+
+    public IEnumerable<MyCubeGrid> Grids => changes.Keys;
+
+    public bool Covers(MyCubeGrid grid) => changes.ContainsKey(grid);
+
+    public void Add(IEnumerable<MyCubeGrid> grids)
+    {
+        foreach (var grid in grids)
+        {
+            if (!changes.ContainsKey(grid))
+                changes[grid] = new Dictionary<Vector3I, Change>();
+        }
     }
 
     public bool Expired =>
@@ -40,29 +58,37 @@ public sealed class PaintStroke
     // The first change of a block in the stroke keeps its original paint
     public void Record(MySlimBlock block, Vector3 oldColor, MyStringHash oldSkin)
     {
-        if (!changes.TryGetValue(block.Min, out var change))
+        if (!changes.TryGetValue(block.CubeGrid, out var blocks))
+            return;
+        if (!blocks.TryGetValue(block.Min, out var change))
             change = new Change { OldColor = oldColor, OldSkin = oldSkin };
         change.NewColor = block.ColorMaskHSV;
         change.NewSkin = block.SkinSubtypeId;
-        changes[block.Min] = change;
+        blocks[block.Min] = change;
         Touch();
     }
 
     public void Commit()
     {
-        var changed = changes
-            .Where(c => c.Value.OldColor != c.Value.NewColor || c.Value.OldSkin != c.Value.NewSkin)
-            .ToList();
-        if (changed.Count == 0 || Grid.MarkedForClose)
-            return;
+        var forward = new List<Op>();
+        var reverse = new List<Op>();
+        var count = 0;
+        foreach (var pair in changes)
+        {
+            var grid = pair.Key;
+            var changed = pair
+                .Value.Where(c =>
+                    c.Value.OldColor != c.Value.NewColor || c.Value.OldSkin != c.Value.NewSkin
+                )
+                .ToList();
+            if (changed.Count == 0 || grid.MarkedForClose)
+                continue;
 
-        var applyColor = changed.Any(c => c.Value.OldColor != c.Value.NewColor);
-        var applySkin = changed.Any(c => c.Value.OldSkin != c.Value.NewSkin);
-        var handle = Recorder.Handle(Grid);
-        Recorder.Commit(
-            $"painted {Recorder.Plural(changed.Count, "block")}",
-            new List<Op>
-            {
+            count += changed.Count;
+            var applyColor = changed.Any(c => c.Value.OldColor != c.Value.NewColor);
+            var applySkin = changed.Any(c => c.Value.OldSkin != c.Value.NewSkin);
+            var handle = Recorder.Handle(grid);
+            forward.Add(
                 new PaintOp
                 {
                     Grid = handle,
@@ -76,10 +102,9 @@ public sealed class PaintStroke
                             Skin = c.Value.NewSkin.String,
                         })
                         .ToList(),
-                },
-            },
-            new List<Op>
-            {
+                }
+            );
+            reverse.Add(
                 new PaintOp
                 {
                     Grid = handle,
@@ -93,8 +118,13 @@ public sealed class PaintStroke
                             Skin = c.Value.OldSkin.String,
                         })
                         .ToList(),
-                },
-            }
-        );
+                }
+            );
+        }
+        if (count == 0)
+            return;
+
+        var painted = $"painted {Recorder.Plural(count, "block")}";
+        Recorder.Commit(Label == null ? painted : $"{Label}, {painted}", forward, reverse);
     }
 }

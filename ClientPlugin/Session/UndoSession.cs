@@ -53,6 +53,7 @@ public class UndoSession : MySessionComponentBase
         MyEntities.OnEntityAdd += OnEntityAdd;
         MySession.Static.OnSavingCheckpoint += OnSavingCheckpoint;
         MySession.OnUnloading += OnUnloading;
+        UndoApi.ForwardPaint = CompanionClient.ForwardPaint;
         UndoApi.Start();
     }
 

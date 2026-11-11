@@ -38,6 +38,12 @@ public enum MessageType : byte
 
     // Client: removes a backup, the server answers with the rows
     Delete = 10,
+
+    // Client: puts a backup back where it was, the server answers with a notice
+    Restore = 11,
+
+    // Client: a plugin repaints these grids for the player (UndoApi.RecordPaint)
+    Paint = 12,
 }
 
 public enum StepContext : byte

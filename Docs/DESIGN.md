@@ -255,9 +255,9 @@ section 6. Every op has a validator (the predicate from section 2) and an apply 
 | Remove blocks with the cube builder | Prefix on `MyCubeGrid.RazeBlocks(List<Vector3I>, long, ulong)`, `RazeBlocks(ref Vector3I, ref Vector3UByte, long)`, `RazeBlocksDelayed` (the cube builder's area removal) and `OnClosedMessageBox` (the same removal after the "remove the pilot too" question). `RazeBlock`, which grinders use for a fully ground block, is excluded. Snapshot each block with `MySlimBlock.GetObjectBuilder()` (not the copy variant, the block comes back as itself) into one `MyObjectBuilder_CubeGrid`, plus the association record of section 7. The node is committed once the splits settled: when `m_disconnectsDirty` is clear again and two frames passed. Only blocks that are gone by then count. A removal that closes the grid (its last block) is not recorded; bringing a grid back is the grid paste op's job | `RazeBlocks` | `RestoreBlocks(grid, blocksBuilder)` | `BuildBlockRequestInternal(visuals, location, builder, ...)` per block with the saved builder and the original entity id, so toolbars and other references to the block work again; replicated by `BuildBlockSucess`. Blocks that only connect through other removed blocks are retried until no more progress is made. With symmetry an area removal is one `RazeBlocksDelayed` per mirror copy in the same frame; the removals of one frame on a grid grow one capture, except for a copy that needs the group backup when the first did not, which has to be taken before the first removal ran and so gets a node of its own. The build request always shares ownership with the faction, so a different saved share mode is put back with `ChangeOwnerRequest`. With the full state option off: `BuildBlocks` from definition, orientation, color, skin |
 | Removal that splits the grid | `OnGridSplit` of the grid, subscribed while the removal waits to settle; the handler only collects the pieces, since it can run on a parallel update thread. Each piece gets a handle and a key, the position of one of its blocks, which is the same in the piece and in the main grid | `RazeBlocks` again, which on redo rebinds each piece handle to the new piece containing its key | `MergeBack(mainGrid, pieces)` then `RestoreBlocks` | `MergeBack` is the live merge `MergeGrid_MergeBlock(piece, Vector3I.Zero, checkMergeOrder: false)`; the piece's block entities are the same objects the split moved, so ids, toolbars, block groups and controller references all survive. A split piece keeps the grid positions and starts with the main grid's transform, so the merge offset is zero; the server stops a dynamic piece and sets its world matrix to the main grid's first, because the merge transform takes the orientation from the world matrices |
 | Paste grids (free placement) | Prefix on `MyCubeGrid.TryPasteGrid_Implementation` when locally invoked; it chains a callback into `MyPasteGridParameters.OnPasteFinished`, which gets the pasted grids (section 6). That covers the clipboard and every other local paste request, Remote's blueprint paste included | `PasteGrids(store entry)` | `CloseGrids(handles)` | The forward builders are read back from the pasted grids so a redo re-creates them with `CreateFromObjectBuilderAndAdd` under the same ids. A static paste that merges into a touching static grid right away is not recorded |
-| Paste blocks into an existing grid | Prefix and postfix on `MyCubeGrid.PasteBlocksToGrid`; the server request runs inside it, so the new blocks are the grid's blocks after minus before | `RestoreBlocks(grid, merged blocks)` | `RazeBlocks(grid, positions)` | The forward op is the removed block restore with the merged blocks read back from the grid, so a redo keeps their ids. The game merges only the first clipboard grid and adds the others as grids of their own, which are not recorded |
+| Paste blocks into an existing grid | Prefix and postfix on `MyCubeGrid.PasteBlocksToGrid`; the server request runs inside it, so the new blocks are the grid's blocks after minus before | `RestoreBlocks(grid, merged blocks)` | `RazeBlocks(grid, positions)` | The forward op is the removed block restore with the merged blocks read back from the grid, so a redo keeps their ids. The undo also closes the top parts the game added to pasted rotor, hinge and piston bases (section 7). The game merges only the first clipboard grid and adds the others as grids of their own, which are not recorded |
 | Delete grid or group (clipboard Delete, Cut, Remote's `grid_close`) | Prefix on `MyCubeGrid.SendGridCloseRequest`, the player's close request, which the clipboard's `DeleteGrid` sends and Remote's `grid_close` sends on both sides since CometWorks/remote#28; a prefix on `MyGridClipboard.DeleteGroup` captures the whole group as one node and keeps the per grid requests inside it from becoming nodes of their own. Snapshot `grid.GetObjectBuilder(true)` for each grid (same as `CopyGridInternal`: clear pilots and turret shooting; the copy variant keeps the entity ids). The local server closes them inside the request; only grids that really closed count | `CloseGrids` | `PasteGrids(store entry at original position and velocity)` | Re-created without remapping, ids and references to other grids survive |
-| Paint or skin blocks, area or whole grid | Prefix and postfix on `MyCubeGrid.ChangeColorAndSkin(MySlimBlock, Vector3?, MyStringHash?)` record old and new per block; only when the change was initiated locally: a prefix on `SkinBlocks`, `SkinGrid`, `ColorBlocks` or `ColorGrid` opens a "paint stroke" for that grid, and `ChangeColorAndSkin` calls on it while the stroke is open are attributed to it | `Paint(grid, [(pos, hsv, skin)])` | `Paint(grid, [(pos, oldHsv, oldSkin)])` | Holding the mouse button calls `SkinBlocks` every frame. Calls are coalesced into one node until 300 ms pass without a call or a change; undo and redo commit an open stroke first. Color and skin are only applied when the stroke changed them, so a skin the player does not own is never sent. Apply groups blocks of equal (hsv, skin) into runs of adjacent block min positions along X and calls `SkinBlocks(min, max, hsv, skin, false)` per run; a run only covers cells that are min positions of its own blocks |
+| Paint or skin blocks, area or whole grid | Prefix and postfix on `MyCubeGrid.ChangeColorAndSkin(MySlimBlock, Vector3?, MyStringHash?)` record old and new per block; only when the change was initiated locally: a prefix on `SkinBlocks`, `SkinGrid`, `ColorBlocks` or `ColorGrid` opens a "paint stroke" for that grid, and `ChangeColorAndSkin` calls on it while the stroke is open are attributed to it | `Paint(grid, [(pos, hsv, skin)])` | `Paint(grid, [(pos, oldHsv, oldSkin)])` | Holding the mouse button calls `SkinBlocks` every frame. Calls are coalesced into one node until 300 ms pass without a call or a change; undo and redo commit an open stroke first. Color and skin are only applied when the stroke changed them, so a skin the player does not own is never sent. Apply groups blocks of equal (hsv, skin) into runs of adjacent block min positions along X and calls `SkinBlocks(min, max, hsv, skin, false)` per run; a run only covers cells that are min positions of its own blocks. Each request makes the game update the emissivity of every emissive block of the grid, one render message each, and a full render queue (1M messages a frame) crashes the game, so the requests go out within a frame budget of 100k messages and 1000 requests (`PaintBudget`, Paint Replacer's limits); the rest follows in the next frames while the step is pending |
 | Terminal property change | Prefix, postfix and finalizer on `MyTerminalValueControl<TBlock, TValue>.SetValue(TBlock, TValue)` and its overrides, found through `MyTerminalControlFactory.GetControls(Type)` for the block type of every cube block definition whose controls exist (`AreControlsCreated`, risk R1). The prefix reads `GetValue(block)` as the old value, the postfix reads it again as the new one, since setters clamp. A per thread depth counter makes only the outermost call count: the checkbox and combo box overrides call the base method. While the terminal is open only blocks in the control's `TargetBlocks` are recorded, so a script that sets some other block's property meanwhile is left out; with "record outside the terminal" on every call counts | `SetProperty(block, controlId, value)` | `SetProperty(block, controlId, oldValue)` | Values are stored as text: bool, float, long, Color (packed), StringBuilder, enums, MyStringId. A control with another value type is logged once and neither patched nor recorded. Apply resolves the control by id via `MyTerminalControlFactory.GetControls` and calls `SetValue` through reflection, which triggers the normal sync. Changes arrive in bursts (a slider drag every frame, a multi selection once per block), so calls for the same control are collected until the text coalescing window passes without one, then become one node with one op per block. A block whose value ends where it started is dropped. Undo and redo commit an open burst first |
 | Block custom name | The terminal's Name box is a property control ("Name") and goes through `SetValue` on every text change. Prefixes on both `MyTerminalBlock.SetCustomName` overloads catch the other callers (mod API, Remote); they skip while a `SetValue` call is on the stack, which is the deduplication | `SetProperty(block, "Name", name)` | `SetProperty(block, "Name", oldName)` | No op type of its own. The Name box renames on every keystroke, not when the field loses focus; the burst rule above makes that one node per rename |
 | Grid name | Prefix on `MyCubeGrid.ChangeDisplayNameRequest(string)`; old value is `DisplayName` | `SetGridName` | `SetGridName(old)` | The Info tab sends it from the OK button and on Enter. Apply sends the same request, which the local server runs inside the call |
@@ -379,8 +379,9 @@ grid the removal happened on (`Anchor`) and moves the stored group to where that
 is now, with its velocity, before creating it.
 
 The other direction: placing one of these bases makes the game create the top part
-as a grid of its own. The undo of a placement (`RazeBlocksOp.WithTopParts`) closes a
-top grid that still consists of that one block before it removes the base.
+as a grid of its own, and so does pasting a base without its top part into a grid.
+The undo of a placement or of such a paste (`RazeBlocksOp.WithTopParts`) closes a top
+grid that still consists of that one block before it removes the base.
 
 Costs: every removal of such a block stores the group, which for a large ship is a
 few hundred KB compressed, and the undo re-creates the whole group. A player seated
@@ -573,7 +574,7 @@ Keen's serializer output without the byte order mark. An entry is written to a `
 file and renamed, the index likewise; an index that does not parse is copied to
 `index.xml.bad` and the store starts a new one rather than overwriting it.
 
-Index row: id, UTC timestamp, reason (deleted, pasted, placed, snapshot; "split" in
+Index row: id, UTC timestamp, reason (deleted, pasted, placed, snapshot, edited; "split" in
 stores written by 0.1.0 clients), main grid name (the grid with the most blocks), grid
 count, total block count, PCU (sum of definition PCU), grid size class (large, small,
 mixed), static or dynamic, main grid entity id, compressed bytes. Everything is
@@ -680,6 +681,57 @@ same way, and Delete asks the server to remove the entry. The server never asks 
 an oversized backup: it drops it, the node becomes a barrier, and its budgets stay as
 the server's config has them.
 
+### Snapshots before edits
+
+Added in 0.3.0 (SE-1360). Every grid a player edits gets a backup of its whole group
+(`StoredGroups.GroupOf`, the group link type of section 7), so there is something to
+go back to when damage happens that undo cannot take back. The backup is taken right
+before the first edit of the grid in the session, and again before the first edit
+after a pause longer than "Grid snapshot interval s" (900 by default, 0 turns
+snapshots off). The pause counts from the last edit, not from the last snapshot, and
+an edit marks every grid of the group, so a subgrid edited a minute after its
+carrier is not backed up again (`SnapshotSchedule`, no game references).
+
+What counts as an edit is what the plugin records, and only where it records: placing
+blocks (single, line, area, a paste into the grid), removing them, painting and
+skins, and the terminal (properties, names, Custom Data, toolbars, programs), plus
+the edits of other plugins through the API (`RecordRemoval`, and `BeforeEdit` for
+the ones that change a grid by their own means, section 15). A replay of undo or
+redo is no edit. The block and paint hooks call `Recorder.BeforeEdit` in their
+prefixes, before the grid changes. The terminal hooks call it when they record, after
+the first change: the snapshot then has that one value changed already.
+
+On the game thread the backup is only `StoredGroups.Capture`, the builders, which
+need the live grids. Making the blueprint XML, its hash and the gzip file runs on a
+worker thread (`Task.Run`), and the row is committed on the game thread a frame later
+through `MySandboxGame.Invoke`, so the index is only ever touched there. A commit
+that arrives after the session ended deletes the staged file. A backup over a budget
+is dropped without asking: it is no undo step, nothing depends on it. Each committed
+snapshot is logged with the time it took on and off the game thread.
+
+Rows have the reason Edited. Beyond the byte budgets above, each grid keeps the newest
+"Grid snapshots per grid" (10) of them, by main grid entity id; older ones are
+removed when a new one is committed (`GridStoreFolder.TrimEdited`).
+
+On a dedicated server and on a lobby host the snapshots of a served player are taken
+by the server, into that player's grid store, with the server's interval and count
+(section 14). A player whose client does not run Undo is not recorded and gets none.
+
+### Restore in place
+
+The dialog's Restore button puts the selected backup back where it was: one step of
+the build history, labeled "restored <grid> from <local time>" (`GridRestore`). The
+forward op is a `GroupSnapshotOp` of the backup, which closes the grids of it that
+exist now, with whatever joined their group since, and creates the backup again under
+its own ids. The reverse is another `GroupSnapshotOp`, of a backup of the current
+grids taken right before (reason Snapshot), or a `CloseGridsOp` when none of them
+exists any more. The node is recorded as undone and then redone through the executor,
+so the restore is checked and reported like any other step, as "Grid history:
+restored ...". It works for every row, not only snapshots: a deleted grid comes back
+at its old place too. On a client of a server the button sends the row's id (message
+Restore) and the server restores for the player. A restore is no edit and takes no
+snapshot of its own.
+
 ## 10. Applying an action
 
 `Executor.Undo()` / `Redo()` run on the main thread from the key handlers:
@@ -696,9 +748,11 @@ the server's config has them.
 4. The local server runs most requests inside the call. Ops that still complete later
    return a check, which becomes the history's `Pending` op: a close (the grids marked
    for close), a group snapshot restore (the old grids gone, then the group created
-   again) and a replayed removal that splits the grid (the splits settled, the piece
-   handles rebound). The executor keeps the history locked for further undo or redo
-   until the check passes or the pending timeout of 5 seconds passes. A close is
+   again), a replayed removal that splits the grid (the splits settled, the piece
+   handles rebound) and a repaint too big for one frame's paint budget (its requests
+   all sent, `PaintBudget`). The executor keeps the history locked for further undo
+   or redo until the check passes or the pending timeout of 5 seconds passes, plus
+   the time an op says the rest of its work needs (`Op.PendingTime`). A close is
    checked because the game refuses an economy station without an error. On timeout
    the node is marked "unknown result", and the next step across it is refused with
    "the result of X is unknown". An exception while applying the ops marks the node
@@ -732,6 +786,8 @@ other tunables.
 | Grid store budget total MB | 2048 | Section 9 retention, whole storage root |
 | Budget raise step MB | 64 | Granularity when a budget is raised for an oversized entry |
 | Oversized grid backups | Ask | Ask, Always raise, Never store; section 9 |
+| Grid snapshot interval s | 900 | A grid is backed up before the first edit after this many seconds without one; 0 turns it off; section 9 |
+| Grid snapshots per grid | 10 | Snapshots taken before edits that each grid keeps |
 | Grid history binding | Ctrl-H | Opens the recovery dialog in the Build context; takes Ctrl-H from the vanilla render profiler there, which stays on Ctrl-Shift-H |
 | Grid history sort keys | Time descending | Saved column sort history of the dialog, stored as comma separated column names with a leading `-` for descending (`-Time`); no control in the config dialog |
 | Undo tree | off | Keep abandoned branches |
@@ -762,6 +818,7 @@ config (`UndoServerConfig`), so Quasar can show and edit it:
 | Grid store budget per player MB | 256 | Section 9 retention, per served player |
 | Grid store budget total MB | 4096 | All players of all worlds under the store folder |
 | Group link type for snapshots | Logical | As on the client |
+| Grid snapshot interval s, Grid snapshots per grid | 900, 10 | As on the client, for every served player |
 | Store folder | `<instance>/Undo` | Root of the grid store and of the status file |
 | Pending operation timeout s, Paint stroke timeout ms, Text coalescing window ms | 5, 300, 500 | As on the client |
 | Debug status file | off | Writes `status-players.json` into the store folder after every change, for the tests: every served player's histories, last answer and connection |
@@ -1198,6 +1255,8 @@ the mod API.
 | State | server | whether the build history has nothing to undo |
 | Terminal | client | the terminal screen opened or closed |
 | Backups, Fetch, Part, Delete | both | the grid history dialog's rows, a backup file in parts of 60000 bytes, a removal |
+| Restore | client | put a backup back in place (section 9); answered with a Notice |
+| Paint | client | a plugin's `RecordPaint` on the client: label and up to 100 grid ids; the server opens the stroke for the player (section 15) |
 
 The client sends Hello when a session starts where it is not the server, and again
 when the player changes the options (at most once a second). Without a Welcome within
@@ -1261,6 +1320,14 @@ Sections plugin is the first user.
   blocks of a grid, take the group backup of section 7, and the forward ops close
   those grids again on redo. Such a capture is not joined with the removals of the
   same frame, it is a step of its own.
+- `RecordPaint` opens a paint stroke over several grids with the caller's label
+  (SE-1357). The changes the color change hook attributes to it, on any of its
+  grids, become one node of one `PaintOp` per grid when the stroke times out. A
+  paint request of the player on one of those grids keeps the stroke open instead
+  of starting its own. Where the caller is a client of a server with the companion,
+  Undo's client sends the grids and the label (message Paint) and the server opens
+  the stroke for that player, before the paint requests that follow arrive; a
+  stroke those requests opened already is taken over.
 - `AddStep` commits a node of two `PluginStepOp`s that carry the owner and the
   caller's data, saved with the history. Applying one calls the handler the owner
   registered with `RegisterStepHandler`; without one the step is refused with

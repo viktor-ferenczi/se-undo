@@ -1,7 +1,8 @@
 """Session setup of the dedicated server tests: a fresh server per test file, with
 the client as its administrator and creative tools switched on.
 
-A test file sets COMPANION = False for a server without the Undo companion, and
+A test file sets COMPANION = False for a server without the Undo companion,
+SERVER_UNDO_CONFIG to change options of the companion, and
 WORLD_SETTINGS to change session settings of the world by element name, and
 EXTRA_GRIDS to add grids to it (rig.prepare_world). The
 second client, without creative tools, joins only for the tests that ask for game2.
@@ -27,6 +28,7 @@ KEEP = os.environ.get("UNDO_KEEP") == "1"
 @pytest.fixture(scope="module")
 def server(request):
     companion = getattr(request.module, "COMPANION", True)
+    ds_rig.EXTRA_PLUGINS = getattr(request.module, "PLUGINS", ())
     if ATTACH and ds_rig.server_pid():
         yield companion
         return
@@ -38,6 +40,7 @@ def server(request):
         companion=companion,
         settings=getattr(request.module, "WORLD_SETTINGS", None),
         extra_grids=getattr(request.module, "EXTRA_GRIDS", None),
+        undo_config=getattr(request.module, "SERVER_UNDO_CONFIG", None),
     )
     try:
         ds_rig.start_server()

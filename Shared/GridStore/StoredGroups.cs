@@ -248,11 +248,14 @@ public static class StoredGroups
     private static bool PathsEqual(string a, string b) =>
         string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.Ordinal);
 
-    private static StoreRow Stage(List<MyObjectBuilder_CubeGrid> builders, StoreReason reason)
-    {
-        var main = builders.OrderByDescending(b => b.CubeBlocks.Count).First();
-        var sizes = builders.Select(b => b.GridSizeEnum).Distinct().ToList();
+    private static StoreRow Stage(List<MyObjectBuilder_CubeGrid> builders, StoreReason reason) =>
+        Actor.Current.Store.Stage(XmlOf(builders), RowOf(builders, reason));
 
+    // The blueprint document of the group. Reads only the builders, so it runs off
+    // the game thread for the snapshots taken before edits.
+    public static string XmlOf(List<MyObjectBuilder_CubeGrid> builders)
+    {
+        var main = MainOf(builders);
         var blueprint =
             MyObjectBuilderSerializerKeen.CreateNewObject<MyObjectBuilder_ShipBlueprintDefinition>();
         blueprint.Id = new MyDefinitionId(
@@ -263,25 +266,50 @@ public static class StoredGroups
         var definitions =
             MyObjectBuilderSerializerKeen.CreateNewObject<MyObjectBuilder_Definitions>();
         definitions.ShipBlueprints = new[] { blueprint };
+        return BuilderXml.Write(definitions);
+    }
 
-        return Actor.Current.Store.Stage(
-            BuilderXml.Write(definitions),
-            new StoreRow
-            {
-                TimestampUtc = DateTime.UtcNow,
-                Reason = reason,
-                MainGridName = main.DisplayName,
-                GridCount = builders.Count,
-                BlockCount = builders.Sum(b => b.CubeBlocks.Count),
-                Pcu = builders.SelectMany(b => b.CubeBlocks).Sum(Pcu),
-                Size =
-                    sizes.Count > 1 ? GridSizeClass.Mixed
-                    : sizes[0] == MyCubeSize.Large ? GridSizeClass.Large
-                    : GridSizeClass.Small,
-                IsStatic = main.IsStatic,
-                MainGridEntityId = main.EntityId,
-            }
-        );
+    private static MyObjectBuilder_CubeGrid MainOf(List<MyObjectBuilder_CubeGrid> builders) =>
+        builders.OrderByDescending(b => b.CubeBlocks.Count).First();
+
+    // The index row without the id and the size, which Stage fills in
+    public static StoreRow RowOf(List<MyObjectBuilder_CubeGrid> builders, StoreReason reason)
+    {
+        var main = MainOf(builders);
+        var sizes = builders.Select(b => b.GridSizeEnum).Distinct().ToList();
+        return new StoreRow
+        {
+            TimestampUtc = DateTime.UtcNow,
+            Reason = reason,
+            MainGridName = main.DisplayName,
+            GridCount = builders.Count,
+            BlockCount = builders.Sum(b => b.CubeBlocks.Count),
+            Pcu = builders.SelectMany(b => b.CubeBlocks).Sum(Pcu),
+            Size =
+                sizes.Count > 1 ? GridSizeClass.Mixed
+                : sizes[0] == MyCubeSize.Large ? GridSizeClass.Large
+                : GridSizeClass.Small,
+            IsStatic = main.IsStatic,
+            MainGridEntityId = main.EntityId,
+        };
+    }
+
+    // A staged entry nobody has to answer for: the snapshot taken before an edit.
+    // One over a budget is dropped, never asked about. False when it was dropped.
+    public static bool CommitQuietly(StoreRow row)
+    {
+        var store = Actor.Current.Store;
+        var config = Options.Current;
+        var over =
+            row.Bytes > config.GridStoreBudgetPerWorldMb * Mb
+            || row.Bytes > config.GridStoreBudgetTotalMb * Mb;
+        if (store.IsStaged(row) && over)
+        {
+            store.Discard(row);
+            return false;
+        }
+        Commit(row);
+        return true;
     }
 
     private static int Pcu(MyObjectBuilder_CubeBlock block) =>

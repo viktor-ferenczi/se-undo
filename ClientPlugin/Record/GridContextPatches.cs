@@ -90,6 +90,8 @@ public static class GridContextPatches
         private static void Prefix(MyCubeGrid __instance, out HashSet<MySlimBlock> __state)
         {
             __state = Recorder.CanRecord ? new HashSet<MySlimBlock>(__instance.CubeBlocks) : null;
+            if (__state != null)
+                Recorder.BeforeEdit(__instance);
         }
 
         private static void Postfix(MyCubeGrid __instance, HashSet<MySlimBlock> __state)

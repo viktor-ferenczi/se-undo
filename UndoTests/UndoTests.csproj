@@ -12,6 +12,7 @@
     <Compile Include="../Shared/Storage/*.cs" LinkBase="Storage" />
     <Compile Include="../Shared/GridStore/GridStoreFolder.cs" LinkBase="GridStore" />
     <Compile Include="../Shared/GridStore/StoreRetention.cs" LinkBase="GridStore" />
+    <Compile Include="../Shared/GridStore/SnapshotSchedule.cs" LinkBase="GridStore" />
     <Compile Include="../ClientPlugin/GridStore/SortKeys.cs" LinkBase="GridStore" />
     <Compile Include="../ClientPlugin/Text/TextHistory.cs" LinkBase="Text" />
     <Compile Include="../Shared/PlayerOptions.cs" />

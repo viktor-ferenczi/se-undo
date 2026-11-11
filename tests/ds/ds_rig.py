@@ -26,7 +26,6 @@ import signal
 import subprocess
 import sys
 import time
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -114,39 +113,12 @@ SOURCE_CELLS = [(0, y, z) for y in (-1, 0, 1) for z in (-1, 0, 1)]
 SOURCE_AT = (24, 1, 4)
 
 
-def _profile(ids) -> str:
-    folders = "".join(
-        f"<LocalFolderConfig><Id>{i}</Id><DebugBuild>true</DebugBuild></LocalFolderConfig>"
-        for i in ids
-    )
-    return (
-        '<?xml version="1.0" encoding="utf-8"?>\n'
-        '<Profile xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
-        'xmlns:xsd="http://www.w3.org/2001/XMLSchema">'
-        f"<Name>Current</Name><GitHub /><DevFolder>{folders}</DevFolder>"
-        "<Local /><Mods /></Profile>\n"
-    )
+_profile = rig.profile_xml
+register_source = rig.register_source
 
-
-def register_source(sources: Path, name: str, folder: Path, file: str) -> None:
-    """Points the loader's dev folder source of this name at a folder, adding it
-    when missing. The rig's loaders compile Remote and Undo from these working trees."""
-    tree = ET.parse(sources)
-    local = tree.getroot().find("LocalPluginSources")
-    if local is None:
-        local = ET.SubElement(tree.getroot(), "LocalPluginSources")
-    for plugin in local.findall("LocalPlugin"):
-        if plugin.findtext("Name") == name:
-            local.remove(plugin)
-    plugin = ET.SubElement(local, "LocalPlugin")
-    for tag, value in (
-        ("Name", name),
-        ("Folder", str(folder)),
-        ("File", file),
-        ("Enabled", "true"),
-    ):
-        ET.SubElement(plugin, tag).text = value
-    tree.write(sources, encoding="utf-8", xml_declaration=True)
+# Plugins a test file loads next to Remote and Undo (rig.PAINT_REPLACER and the
+# like), set by the conftests from the file's PLUGINS
+EXTRA_PLUGINS: tuple = ()
 
 
 def prepare_world(settings: dict | None = None, extra_grids=None) -> None:
@@ -199,6 +171,7 @@ def prepare_server(
     companion: bool = True,
     settings=None,
     extra_grids=None,
+    undo_config=None,
 ) -> None:
     """Writes the server's Magnetar config and dedicated config. A fresh server
     also gets a new copy of the world and starts with an empty grid store;
@@ -258,7 +231,8 @@ def prepare_server(
     SERVER_DATA.mkdir(parents=True, exist_ok=True)
     (SERVER_DATA / "SpaceEngineers-Dedicated.cfg").write_text(text, encoding="utf-8")
 
-    options = "".join(f"  <{k}>{v}</{k}>\n" for k, v in SERVER_UNDO_CONFIG.items())
+    config = {**SERVER_UNDO_CONFIG, **(undo_config or {})}
+    options = "".join(f"  <{k}>{v}</{k}>\n" for k, v in config.items())
     (SERVER_DATA / "Undo.cfg").write_text(
         '<?xml version="1.0" encoding="utf-8"?>\n'
         f"<UndoServerConfig>\n{options}</UndoServerConfig>\n",
@@ -386,12 +360,7 @@ def launch_client(
     """Launches a client with Remote and Undo compiled from the working copies.
     plugins are the dev folders its profile enables."""
     clone_client(client)
-    legacy = client.pulsar / rig.PULSAR_DATA
-    profile = legacy / "Profiles" / "Current.xml"
-    profile.write_text(_profile(plugins), encoding="utf-8")
-    sources = legacy / "Sources" / "sources.xml"
-    register_source(sources, "remote", rig.REMOTE_REPO, "Remote.xml")
-    register_source(sources, "se-undo", rig.REPO, "Undo.xml")
+    rig.set_plugins(client, plugins, EXTRA_PLUGINS)
 
     (client.appdata / "SpaceEngineers.log").unlink(missing_ok=True)
     rig.launch(client, args, config or UNDO_CONFIG)

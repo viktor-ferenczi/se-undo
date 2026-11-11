@@ -17,9 +17,12 @@ terminal property changes, block and grid names, Custom Data, block toolbars, pr
 block programs and single line text fields. The history is saved with the world and follows its backups.
 
 Grids the plugin captures for undo (deleted, pasted, split) are kept under a size budget
-and listed in a grid history dialog, sortable by time, name, block count and more. Double
-click puts a backed up grid group on the clipboard for pasting. Ctrl-H opens it in
-gameplay.
+and listed in a grid history dialog, sortable by time, name, block count and more. So is
+a snapshot of every grid you edit, taken before your first change and again after 15
+minutes without one, in case something gets broken that undo cannot take back. Double
+click puts a backed up grid group on the clipboard for pasting; Restore puts it back
+where it was, in place of how it is now, and Ctrl-Z takes that back. Ctrl-H opens the
+dialog in gameplay.
 
 ![Grid history dialog](Docs/UndoHistory.png)
 

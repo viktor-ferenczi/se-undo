@@ -32,6 +32,11 @@ public interface IUndoOptions
     int BudgetRaiseStepMb { get; }
     OversizedGridBackups OversizedGridBackups { get; }
 
+    // Seconds without an edit of a grid after which the next edit backs it up
+    // first, 0 for never; and how many of those backups each grid keeps
+    int GridSnapshotIntervalS { get; }
+    int GridSnapshotsPerGrid { get; }
+
     // Upper limits of the node counts a client asks for, on a server
     int MaxNodesBuild { get; }
     int MaxNodesTerminal { get; }

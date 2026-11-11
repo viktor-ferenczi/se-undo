@@ -53,6 +53,8 @@ def game(request):
                 settings=getattr(request.module, "WORLD_SETTINGS", None),
                 extra_grids=getattr(request.module, "EXTRA_GRIDS", None),
             )
+            rig.ensure_pulsar()
+            rig.set_plugins(rig.CLIENT, extra=getattr(request.module, "PLUGINS", ()))
             rig.launch(undo_config=config)
             api.wait_for_api(max_wait=240)
             rig.load_world(api)

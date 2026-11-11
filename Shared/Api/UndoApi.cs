@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using Sandbox;
 using Sandbox.Game.Entities;
+using Sandbox.Game.Multiplayer;
 using Sandbox.Game.World;
 using Sandbox.ModAPI;
 using Shared.History;
@@ -80,6 +81,8 @@ public static class UndoApi
                 ulong,
                 bool
             >(RecordRemoval),
+            ["RecordPaint"] = new Func<List<IMyCubeGrid>, string, ulong, bool>(RecordPaint),
+            ["BeforeEdit"] = new Func<IMyCubeGrid, ulong, bool>(BeforeEdit),
             ["AddStep"] = new Func<string, string, string, string, ulong, bool>(AddStep),
             ["RegisterStepHandler"] = new Action<string, Func<string, ulong, string>>(
                 RegisterStepHandler
@@ -116,6 +119,7 @@ public static class UndoApi
             steamId,
             () =>
             {
+                Recorder.BeforeEdit(cubeGrid);
                 var capture = RazeCapture.Begin(
                     cubeGrid,
                     positions,
@@ -125,6 +129,59 @@ public static class UndoApi
                 if (capture == null)
                     return false;
                 Recorder.Begin(capture);
+                return true;
+            }
+        );
+
+    // The client plugin hands the local player's paint stroke to the server's
+    // companion with this, where the server records for the player
+    public static Func<List<long>, string, bool> ForwardPaint = (_, _) => false;
+
+    // Before the caller repaints the grids through the game's paint requests
+    // (MyCubeGrid.SkinBlocks and the like). What they change until the paint stroke
+    // times out is one step with the label. On a client of a server with the Undo
+    // companion the server records it, so the call is passed on there.
+    private static bool RecordPaint(List<IMyCubeGrid> grids, string label, ulong steamId)
+    {
+        var cubeGrids = grids?.OfType<MyCubeGrid>().Distinct().ToList();
+        if (cubeGrids == null || cubeGrids.Count == 0)
+            return false;
+        label = string.IsNullOrEmpty(label) ? null : label;
+        if (
+            Run(
+                steamId,
+                () =>
+                {
+                    Recorder.OpenStroke(cubeGrids, label);
+                    return true;
+                }
+            )
+        )
+            return true;
+
+        try
+        {
+            return !Sync.IsServer
+                && (steamId == 0 || steamId == Sync.MyId)
+                && Thread.CurrentThread == MySandboxGame.Static?.UpdateThread
+                && ForwardPaint(cubeGrids.Select(g => g.EntityId).ToList(), label);
+        }
+        catch (Exception e)
+        {
+            Log.Error($"An API call failed: {e}");
+            return false;
+        }
+    }
+
+    // Before the caller changes the grid by its own means; backs the grid's group up
+    // when it is due, the same as before the player's own edits
+    private static bool BeforeEdit(IMyCubeGrid grid, ulong steamId) =>
+        grid is MyCubeGrid cubeGrid
+        && Run(
+            steamId,
+            () =>
+            {
+                Recorder.BeforeEdit(cubeGrid);
                 return true;
             }
         );

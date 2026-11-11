@@ -42,6 +42,8 @@ public class Config : INotifyPropertyChanged, IUndoOptions
     private int gridStoreBudgetTotalMb = 2048;
     private int budgetRaiseStepMb = 64;
     private OversizedGridBackups oversizedGridBackups = OversizedGridBackups.Ask;
+    private int gridSnapshotIntervalS = 900;
+    private int gridSnapshotsPerGrid = 10;
     private Binding gridHistoryBinding = new Binding(MyKeys.H, ctrl: true);
     private string gridHistorySortKeys = "-Time";
 
@@ -287,6 +289,32 @@ public class Config : INotifyPropertyChanged, IUndoOptions
     {
         get => oversizedGridBackups;
         set => SetField(ref oversizedGridBackups, value);
+    }
+
+    [Slider(
+        0f,
+        7200f,
+        60f,
+        SliderAttribute.SliderType.Integer,
+        description: "Back up a grid's whole group before the first edit after this many seconds without one, 0 for never"
+    )]
+    public int GridSnapshotIntervalS
+    {
+        get => gridSnapshotIntervalS;
+        set => SetField(ref gridSnapshotIntervalS, value);
+    }
+
+    [Slider(
+        1f,
+        100f,
+        1f,
+        SliderAttribute.SliderType.Integer,
+        description: "Backups taken before edits that each grid keeps, older ones are removed"
+    )]
+    public int GridSnapshotsPerGrid
+    {
+        get => gridSnapshotsPerGrid;
+        set => SetField(ref gridSnapshotsPerGrid, value);
     }
 
     [Keybind(

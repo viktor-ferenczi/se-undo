@@ -14,7 +14,9 @@ public static class Executor
 {
     public static void Undo(UndoHistory history, GridRegistry grids) => Step(history, grids, true);
 
-    public static void Redo(UndoHistory history, GridRegistry grids) => Step(history, grids, false);
+    // The verb names the step in the notification, "Redo" unless the caller did it
+    public static void Redo(UndoHistory history, GridRegistry grids, string verb = "Redo") =>
+        Step(history, grids, false, verb);
 
     // No step to take back and none on its way: a stroke still being coalesced is
     // committed first, and a recording or replay in progress counts as something
@@ -41,10 +43,13 @@ public static class Executor
         return text;
     }
 
-    private static void Step(UndoHistory history, GridRegistry grids, bool undo)
+    private static void Step(
+        UndoHistory history,
+        GridRegistry grids,
+        bool undo,
+        string verb = "Undo"
+    )
     {
-        var verb = undo ? "Undo" : "Redo";
-
         // A paint stroke still being coalesced becomes its own node first
         Recorder.Flush();
 
@@ -136,7 +141,9 @@ public static class Executor
                 Node = node,
                 IsUndo = undo,
                 IsDone = () => checks.All(check => check()),
-                DeadlineUtc = DateTime.UtcNow.AddSeconds(Options.Current.PendingOperationTimeoutS),
+                DeadlineUtc = DateTime
+                    .UtcNow.AddSeconds(Options.Current.PendingOperationTimeoutS)
+                    .Add(TimeSpan.FromTicks(ops.Sum(op => op.PendingTime().Ticks))),
             };
         }
 

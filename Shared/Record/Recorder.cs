@@ -27,6 +27,9 @@ public sealed class Recording
     public TerminalStroke TerminalStroke;
     private int held;
 
+    // Which grids were edited lately, for the snapshots taken before edits
+    public readonly SnapshotSchedule Snapshots = new SnapshotSchedule();
+
     // A served player's close requests of one frame, captured together
     public DeleteCapture Deleting;
 
@@ -53,6 +56,7 @@ public sealed class Recording
             capture.Abort();
         settling.Clear();
         held = 0;
+        Snapshots.Clear();
         Stroke = null;
         TerminalStroke = null;
         Deleting = null;
@@ -173,6 +177,10 @@ public static class Recorder
             ? row.MainGridName
             : $"{row.MainGridName} and {Plural(row.GridCount - 1, "more grid")}";
 
+    // Every recorded edit of a grid calls this before the grid changes, or with the
+    // first change for the terminal; it may back the grid up first
+    public static void BeforeEdit(MyCubeGrid grid) => GridSnapshots.BeforeEdit(grid);
+
     public static int Handle(MyCubeGrid grid) => Actor.Document.Grids.GetOrAdd(grid.EntityId);
 
     public static string Plural(int count, string noun) =>
@@ -249,6 +257,7 @@ public static class Recorder
 
     public static void BeginRaze(MyCubeGrid grid, IEnumerable<Vector3I> positions)
     {
+        BeforeEdit(grid);
         var recording = Recording;
         if (
             recording.Razing is { } razing
@@ -313,7 +322,14 @@ public static class Recorder
             },
             new List<Op>
             {
-                new RazeBlocksOp { Grid = handle, Positions = added.Select(b => b.Min).ToList() },
+                // A pasted rotor, hinge or piston base without its top part gets a
+                // new one as a grid of its own, which the undo removes with it
+                new RazeBlocksOp
+                {
+                    Grid = handle,
+                    Positions = added.Select(b => b.Min).ToList(),
+                    WithTopParts = true,
+                },
             }
         );
     }
@@ -343,6 +359,7 @@ public static class Recorder
         string newValue
     )
     {
+        BeforeEdit(block.CubeGrid);
         var blockRef = BlockRef.From(block, Actor.Document.Grids);
         var name = block.DisplayNameText;
         RecordTerminal(
@@ -365,6 +382,7 @@ public static class Recorder
 
     public static void RecordGridName(MyCubeGrid grid, string oldName, string newName)
     {
+        BeforeEdit(grid);
         var handle = Handle(grid);
         RecordTerminal(
             "grid name",
@@ -378,6 +396,7 @@ public static class Recorder
 
     public static void RecordProgram(MyProgrammableBlock block, string oldSource, string newSource)
     {
+        BeforeEdit(block.CubeGrid);
         var blockRef = BlockRef.From(block, Actor.Document.Grids);
         var name = block.DisplayNameText;
         RecordTerminal(
@@ -392,6 +411,7 @@ public static class Recorder
 
     public static void RecordCustomData(MyTerminalBlock block, string oldData, string newData)
     {
+        BeforeEdit(block.CubeGrid);
         var blockRef = BlockRef.From(block, Actor.Document.Grids);
         var name = block.DisplayNameText;
         RecordTerminal(
@@ -418,6 +438,7 @@ public static class Recorder
         string newItem
     )
     {
+        BeforeEdit(block.CubeGrid);
         var blockRef = BlockRef.From(block, Actor.Document.Grids);
         var name = block.DisplayNameText;
         RecordTerminal(
@@ -439,16 +460,36 @@ public static class Recorder
 
     public static void OpenStroke(MyCubeGrid grid)
     {
+        BeforeEdit(grid);
         var recording = Recording;
-        if (recording.Stroke != null && recording.Stroke.Grid != grid)
+        // A plugin's stroke over this grid takes the requests its repaint sends
+        if (recording.Stroke != null && !recording.Stroke.Covers(grid))
             Flush();
-        recording.Stroke ??= new PaintStroke(grid);
+        recording.Stroke ??= new PaintStroke(new[] { grid });
+        recording.Stroke.Touch();
+    }
+
+    // A plugin repaints these grids: what it paints until the stroke times out is one
+    // node with its label. A stroke the player's paint requests opened on one of the
+    // grids already is taken over.
+    public static void OpenStroke(List<MyCubeGrid> grids, string label)
+    {
+        var recording = Recording;
+        if (recording.Stroke != null && recording.Stroke.Grids.Any(g => !grids.Contains(g)))
+            Flush();
+        foreach (var grid in grids)
+            BeforeEdit(grid);
+        recording.Stroke ??= new PaintStroke(grids);
+        recording.Stroke.Add(grids);
+        recording.Stroke.Label = label;
         recording.Stroke.Touch();
     }
 
     // The stroke a color or skin change of this grid belongs to, if one is open
     public static PaintStroke StrokeFor(MyCubeGrid grid) =>
-        !Replay.Active && Actor?.Recording.Stroke?.Grid == grid ? Actor.Recording.Stroke : null;
+        !Replay.Active && Actor?.Recording.Stroke is { } stroke && stroke.Covers(grid)
+            ? stroke
+            : null;
 }
 
 // A placement node that the builds of the same frame on its grid join, see

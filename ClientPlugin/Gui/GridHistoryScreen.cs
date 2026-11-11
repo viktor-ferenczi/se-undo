@@ -145,9 +145,15 @@ public sealed class GridHistoryScreen : MyGuiScreenBase
         table.ItemDoubleClicked += (_, _) => PasteSelected();
         Controls.Add(table);
 
-        AddButton("Paste", -0.2f, "Puts the selected grids on the clipboard", PasteSelected);
-        AddButton("Delete", 0f, "Removes the selected backup", DeleteSelected);
-        AddButton("Close", 0.2f, null, () => CloseScreen());
+        AddButton("Paste", -0.27f, "Puts the selected grids on the clipboard", PasteSelected);
+        AddButton(
+            "Restore",
+            -0.09f,
+            "Puts the selected grids back where they were, in place of how they are now. Ctrl-Z takes it back",
+            RestoreSelected
+        );
+        AddButton("Delete", 0.09f, "Removes the selected backup", DeleteSelected);
+        AddButton("Close", 0.27f, null, () => CloseScreen());
 
         Fill();
     }
@@ -273,6 +279,20 @@ public sealed class GridHistoryScreen : MyGuiScreenBase
 
         CloseScreen();
         MySandboxGame.Static.Invoke(() => clipboard.Paste(), "UndoGridHistoryPaste");
+    }
+
+    // One step of the build history, on the server where it has the history
+    private void RestoreSelected()
+    {
+        var row = Selected;
+        if (row == null)
+            return;
+
+        CloseScreen();
+        if (Remote)
+            CompanionClient.Restore(row.Id);
+        else
+            GridRestore.Restore(row.Id);
     }
 
     private void DeleteSelected()

@@ -264,6 +264,7 @@ public static class CompanionServer
             MessageType.Hello => 5,
             MessageType.Backups => 5,
             MessageType.Fetch => 10,
+            MessageType.Restore => 10,
             _ => 1,
         };
 
@@ -368,6 +369,22 @@ public static class CompanionServer
                 foreach (var row in actor.Store.Index.Rows.Where(r => r.Id == id).ToList())
                     actor.Store.Remove(row);
                 SendRows(actor);
+                break;
+
+            case MessageType.Restore:
+                GridStore.GridRestore.Restore(reader.ReadString());
+                break;
+
+            case MessageType.Paint:
+                var label = reader.ReadString();
+                var grids = new List<MyCubeGrid>();
+                for (var count = reader.ReadInt32(); count > 0; count--)
+                {
+                    if (MyEntities.GetEntityById(reader.ReadInt64()) is MyCubeGrid grid)
+                        grids.Add(grid);
+                }
+                if (grids.Count != 0 && Recorder.CanRecord)
+                    Recorder.OpenStroke(grids, label.Length == 0 ? null : label);
                 break;
         }
     }

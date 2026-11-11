@@ -51,6 +51,8 @@ from another thread. Steps are never recorded on a client of a server.
 | `Version` | `Func<int>` | The API version, 1. A later version only adds functions |
 | `IsRecording` | `Func<ulong, bool>` | Whether a step of the player would be recorded now |
 | `RecordRemoval` | `Func<IMyCubeGrid, List<Vector3I>, List<IMyCubeGrid>, string, ulong, bool>` | Grid, block positions (any cell of each block), grids you close along with them, label, Steam id. See below |
+| `RecordPaint` | `Func<List<IMyCubeGrid>, string, ulong, bool>` | Grids, label, Steam id. Call it right before you repaint the grids through the game's paint requests; see below |
+| `BeforeEdit` | `Func<IMyCubeGrid, ulong, bool>` | Grid, Steam id. Call it right before you change a grid by your own means; see below |
 | `AddStep` | `Func<string, string, string, string, ulong, bool>` | Owner, label, undo data, redo data, Steam id. See below |
 | `RegisterStepHandler` | `Action<string, Func<string, ulong, string>>` | Owner and the handler that applies its steps; null removes it |
 
@@ -69,6 +71,32 @@ subgrids your removal would leave without a connection. A removal with such grid
 one that takes a rotor, hinge, piston or connector apart, and one that removes
 every block of the grid is undone by putting the grid's whole group back from a
 backup, the same way as Undo's own removals of mechanical blocks.
+
+### RecordPaint
+
+For a plugin that repaints blocks through the game's own paint requests
+(`MyCubeGrid.SkinBlocks`, `ColorBlocks` and the like), the way the player paints.
+Call it once, right before the first request, with every grid you will repaint.
+What changes color or skin on those grids until no change came for the paint stroke
+timeout (300 ms) is one step, labeled "<your label>, painted N blocks"; undo and
+redo repaint each block through the same requests. Requests spread over frames are
+fine as long as they keep coming. It counts as an edit for the snapshots.
+
+This one also works on a client of a server that runs the Undo companion: Undo
+passes the call on to the server, which records what your requests change there,
+for the local player (Steam id 0). So a client plugin needs no server side for it.
+[Paint Replacer](https://github.com/viktor-ferenczi/se-paint-replacer) uses it.
+
+A block you changed only locally before the call (a preview) is no change the
+server sees; put its own paint back first, or make the preview inside the stroke.
+
+### BeforeEdit
+
+Undo backs up a grid's whole group before the player's first edit of it, and again
+after a pause in editing (15 minutes by default), so the grid history has a recent
+copy to restore. `RecordRemoval` counts as an edit by itself. If you change a grid in
+another way, such as painting, call `BeforeEdit` once before you start, for each grid
+you are about to change. It is cheap when no backup is due.
 
 ### AddStep and RegisterStepHandler
 
