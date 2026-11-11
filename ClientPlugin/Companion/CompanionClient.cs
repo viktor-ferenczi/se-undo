@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Text;
 using ClientPlugin.Gui;
 using ClientPlugin.Session;
@@ -145,6 +146,31 @@ public static class CompanionClient
 
     public static void Delete(string id) =>
         Send(Protocol.Write(MessageType.Delete, w => w.Write(id)));
+
+    // A plugin repaints these grids (UndoApi.RecordPaint). A message holds up to 100
+    // grids, enough for a ship with all its subgrids.
+    public static bool ForwardPaint(List<long> grids, string label)
+    {
+        if (!Active)
+            return false;
+        label ??= "";
+        if (label.Length > 100)
+            label = label.Substring(0, 100);
+        var sent = grids.Take(100).ToList();
+        Send(
+            Protocol.Write(
+                MessageType.Paint,
+                w =>
+                {
+                    w.Write(label);
+                    w.Write(sent.Count);
+                    foreach (var id in sent)
+                        w.Write(id);
+                }
+            )
+        );
+        return true;
+    }
 
     public static void Restore(string id) =>
         Send(Protocol.Write(MessageType.Restore, w => w.Write(id)));

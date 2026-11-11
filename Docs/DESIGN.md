@@ -1253,6 +1253,7 @@ the mod API.
 | Terminal | client | the terminal screen opened or closed |
 | Backups, Fetch, Part, Delete | both | the grid history dialog's rows, a backup file in parts of 60000 bytes, a removal |
 | Restore | client | put a backup back in place (section 9); answered with a Notice |
+| Paint | client | a plugin's `RecordPaint` on the client: label and up to 100 grid ids; the server opens the stroke for the player (section 15) |
 
 The client sends Hello when a session starts where it is not the server, and again
 when the player changes the options (at most once a second). Without a Welcome within
@@ -1316,6 +1317,14 @@ Sections plugin is the first user.
   blocks of a grid, take the group backup of section 7, and the forward ops close
   those grids again on redo. Such a capture is not joined with the removals of the
   same frame, it is a step of its own.
+- `RecordPaint` opens a paint stroke over several grids with the caller's label
+  (SE-1357). The changes the color change hook attributes to it, on any of its
+  grids, become one node of one `PaintOp` per grid when the stroke times out. A
+  paint request of the player on one of those grids keeps the stroke open instead
+  of starting its own. Where the caller is a client of a server with the companion,
+  Undo's client sends the grids and the label (message Paint) and the server opens
+  the stroke for that player, before the paint requests that follow arrive; a
+  stroke those requests opened already is taken over.
 - `AddStep` commits a node of two `PluginStepOp`s that carry the owner and the
   caller's data, saved with the history. Applying one calls the handler the owner
   registered with `RegisterStepHandler`; without one the step is refused with

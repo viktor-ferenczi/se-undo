@@ -28,6 +28,7 @@ KEEP = os.environ.get("UNDO_KEEP") == "1"
 @pytest.fixture(scope="module")
 def server(request):
     companion = getattr(request.module, "COMPANION", True)
+    ds_rig.EXTRA_PLUGINS = getattr(request.module, "PLUGINS", ())
     if ATTACH and ds_rig.server_pid():
         yield companion
         return

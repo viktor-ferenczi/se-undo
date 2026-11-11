@@ -23,6 +23,7 @@ KEEP = os.environ.get("UNDO_KEEP") == "1"
 
 @pytest.fixture(scope="module")
 def host(request):
+    ds_rig.EXTRA_PLUGINS = getattr(request.module, "PLUGINS", ())
     if ATTACH and rig.running_pid(lobby_rig.HOST):
         api = rig.api(lobby_rig.HOST)
     else:

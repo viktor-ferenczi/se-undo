@@ -76,6 +76,7 @@ about 27 minutes.
 | `test_grid_ops.py` | paste, delete, Ctrl-Delete, Ctrl-X, paste into a grid, new grid from one block |
 | `test_grid_store.py` | retention, the budget question (Yes, No, Escape), the grid history dialog |
 | `test_store_policy.py` | "always raise" for oversized backups, the dialog's Paste, Delete and Close buttons |
+| `test_paint_replacer.py` | the Paint Replacer plugin through the API: a replacement on the aimed grid, on all subgrids and a flood fill each one step, exact paint back on undo, the snapshot it takes |
 | `test_snapshots.py` | snapshots before edits: the first edit, none within the interval (3 s here), one after a pause, the per grid limit, the dialog's Restore and its undo and redo, a 4096 block grid |
 | `test_history.py` | the default linear history, both ends, fast key presses, HUD text, mixed steps, a chain of steps across a deleted and restored grid, undo from a seat |
 | `test_corner_cases.py` | damage, damaged and switched off blocks, a removal that leaves four parts, cargo with items, multi cell blocks, a two grid blueprint, a deleted ship, keys under another screen |

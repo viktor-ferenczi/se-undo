@@ -455,15 +455,34 @@ public static class Recorder
     {
         BeforeEdit(grid);
         var recording = Recording;
-        if (recording.Stroke != null && recording.Stroke.Grid != grid)
+        // A plugin's stroke over this grid takes the requests its repaint sends
+        if (recording.Stroke != null && !recording.Stroke.Covers(grid))
             Flush();
-        recording.Stroke ??= new PaintStroke(grid);
+        recording.Stroke ??= new PaintStroke(new[] { grid });
+        recording.Stroke.Touch();
+    }
+
+    // A plugin repaints these grids: what it paints until the stroke times out is one
+    // node with its label. A stroke the player's paint requests opened on one of the
+    // grids already is taken over.
+    public static void OpenStroke(List<MyCubeGrid> grids, string label)
+    {
+        var recording = Recording;
+        if (recording.Stroke != null && recording.Stroke.Grids.Any(g => !grids.Contains(g)))
+            Flush();
+        foreach (var grid in grids)
+            BeforeEdit(grid);
+        recording.Stroke ??= new PaintStroke(grids);
+        recording.Stroke.Add(grids);
+        recording.Stroke.Label = label;
         recording.Stroke.Touch();
     }
 
     // The stroke a color or skin change of this grid belongs to, if one is open
     public static PaintStroke StrokeFor(MyCubeGrid grid) =>
-        !Replay.Active && Actor?.Recording.Stroke?.Grid == grid ? Actor.Recording.Stroke : null;
+        !Replay.Active && Actor?.Recording.Stroke is { } stroke && stroke.Covers(grid)
+            ? stroke
+            : null;
 }
 
 // A placement node that the builds of the same frame on its grid join, see
