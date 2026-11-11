@@ -98,6 +98,10 @@ A file sets the plugin options of its client with a module level `UNDO_CONFIG`
 dict, merged over `rig.UNDO_CONFIG`; `None` puts an option back to its default.
 `WORLD_SETTINGS` changes session settings of its test world the same way, and
 `EXTRA_GRIDS(position, forward, up)` returns the XML of more grids to put into it.
+`PLUGINS` lists more plugins to load from their working copies, like
+`(rig.PAINT_REPLACER,)`; the dedicated server and lobby rigs load them on their
+clients too. A dedicated server file sets the companion's options with
+`SERVER_UNDO_CONFIG`.
 
 ## What a run does
 
@@ -139,6 +143,7 @@ or PowerShell with `uv run`, and set these environment variables as needed:
 | Variable | Meaning |
 | --- | --- |
 | `UNDO_REMOTE_REPO` | The Remote plugin repo, if it is not next to this one |
+| `UNDO_PAINT_REPLACER_REPO` | The Paint Replacer plugin repo, if it is not next to this one |
 | `UNDO_LAUNCHER` | Launcher exe in the Pulsar folder, default `Legacy.exe` |
 | `UNDO_PULSAR_DATA` | The Pulsar data folder next to the launcher, `Legacy` (default) or `Interim` |
 | `UNDO_GAME_CFG` | The `SpaceEngineers.cfg` that seeds the client, default `%APPDATA%\SpaceEngineers\SpaceEngineers.cfg` |
