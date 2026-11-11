@@ -8,8 +8,7 @@ from __future__ import annotations
 import pytest
 
 import lobby_rig
-import test_snapshots
-from test_snapshots import *  # noqa: F401,F403 -- the tests, their fixture and UNDO_CONFIG
+from test_snapshots import *  # noqa: F401,F403 -- the tests, their fixtures and UNDO_CONFIG
 
 
 @pytest.fixture(scope="module")
@@ -17,9 +16,11 @@ def game(joiner):
     return joiner
 
 
-test_snapshots.SNAPSHOTS.update(
-    folders=lambda: (lobby_rig.HOST.appdata / "Undo" / "Worlds").glob(
+def SNAPSHOT_FOLDERS():
+    return (lobby_rig.HOST.appdata / "Undo" / "Worlds").glob(
         f"*/players/{lobby_rig.JOIN_ID}/grids"
-    ),
-    log=lambda: lobby_rig.HOST.appdata / "SpaceEngineers.log",
-)
+    )
+
+
+def SNAPSHOT_LOG():
+    return lobby_rig.HOST.appdata / "SpaceEngineers.log"

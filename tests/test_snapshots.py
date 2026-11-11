@@ -14,6 +14,8 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import pytest
+
 import rig
 from harness import wait_until
 from se_remote import OpError
@@ -35,11 +37,21 @@ BIG_CELLS = [(x, y, z) for x in range(16) for y in range(16) for z in range(16)]
 
 
 # Where the player's snapshots are stored and logged: the local grid store
-# offline. The dedicated server and lobby files point these at the server's.
-SNAPSHOTS = {
+# offline. The dedicated server and lobby files set SNAPSHOT_FOLDERS and
+# SNAPSHOT_LOG to the server's; the fixture below puts them here per file.
+DEFAULTS = {
     "folders": lambda: (rig.APPDATA / "Undo" / "Worlds").glob("*/grids"),
     "log": lambda: rig.APPDATA / "SpaceEngineers.log",
 }
+SNAPSHOTS = dict(DEFAULTS)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def snapshot_store(request):
+    SNAPSHOTS["folders"] = getattr(
+        request.module, "SNAPSHOT_FOLDERS", DEFAULTS["folders"]
+    )
+    SNAPSHOTS["log"] = getattr(request.module, "SNAPSHOT_LOG", DEFAULTS["log"])
 
 
 def store_folder() -> Path | None:

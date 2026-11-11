@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import ds_rig
 import test_snapshots
-from test_snapshots import *  # noqa: F401,F403 -- the tests and their fixture
+from test_snapshots import *  # noqa: F401,F403 -- the tests and their fixtures
 
 SERVER_UNDO_CONFIG = {
     "GridSnapshotIntervalS": str(test_snapshots.INTERVAL_S),
@@ -15,9 +15,12 @@ SERVER_UNDO_CONFIG = {
     "GridStoreBudgetPerPlayerMb": "64",
 }
 
-test_snapshots.SNAPSHOTS.update(
-    folders=lambda: (ds_rig.SERVER_DATA / "Undo" / "Worlds").glob(
+
+def SNAPSHOT_FOLDERS():
+    return (ds_rig.SERVER_DATA / "Undo" / "Worlds").glob(
         f"*/players/{ds_rig.CLIENT_ID}/grids"
-    ),
-    log=lambda: ds_rig.SERVER_LOG,
-)
+    )
+
+
+def SNAPSHOT_LOG():
+    return ds_rig.SERVER_DATA / "SpaceEngineersDedicated.log"
