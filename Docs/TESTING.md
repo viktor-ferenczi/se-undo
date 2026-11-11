@@ -104,6 +104,8 @@ administrator, creative tools on:
   it: every test of `tests/test_paint_replacer.py` and
   `tests/test_paint_replacer_symmetry.py`. Paint Replacer runs on the client, whose
   Undo passes its `RecordPaint` call on to the companion.
+- `test_paint_budget_ds.py`, a server with it: `tests/test_paint_budget.py`, the
+  server replays the big undo and the client gets every request of it.
 - `test_client_without_undo.py`, a server with it and a second client without the
   plugin, which joins once: a client that left and joined again with the same id
   within seconds timed out during the world download.
@@ -149,7 +151,8 @@ groups, programs), and that the host serves the joined player like the companion
 joined player. `tests/lobby/test_snapshots_lobby.py` and `test_snapshots_host.py` run
 the tests of `tests/test_snapshots.py` as the joined player and as the host, and
 `test_paint_replacer_lobby.py`, `test_paint_replacer_host.py` and their `_symmetry`
-versions do the same for the Paint Replacer tests. The joined player's histories are
+versions do the same for the Paint Replacer tests, and `test_paint_budget_lobby.py`
+and `test_paint_budget_host.py` for `tests/test_paint_budget.py`. The joined player's histories are
 in the host's `Undo/status-players.json`.
 
 ```bash

@@ -141,7 +141,9 @@ public static class Executor
                 Node = node,
                 IsUndo = undo,
                 IsDone = () => checks.All(check => check()),
-                DeadlineUtc = DateTime.UtcNow.AddSeconds(Options.Current.PendingOperationTimeoutS),
+                DeadlineUtc = DateTime
+                    .UtcNow.AddSeconds(Options.Current.PendingOperationTimeoutS)
+                    .Add(TimeSpan.FromTicks(ops.Sum(op => op.PendingTime().Ticks))),
             };
         }
 

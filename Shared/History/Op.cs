@@ -20,6 +20,10 @@ public abstract class Op
     // direction needs to bring it back complete.
     public virtual void Prepare(GridRegistry grids, List<Op> opposite) { }
 
+    // After Apply: how much longer than the pending timeout the check it returned may
+    // take, for an op that spreads its work over frames
+    public virtual TimeSpan PendingTime() => TimeSpan.Zero;
+
     // Grid store entries the op reads
     public virtual IEnumerable<string> StoreRefs() => Enumerable.Empty<string>();
 }
