@@ -42,6 +42,11 @@ Where it is off, the plugin records nothing and takes no keys: Ctrl-Z, Ctrl-Y an
 Ctrl-H do what they do without it. In survival the history waits until creative
 tools are back on.
 
+Other plugins and mods can add their own steps to the history through a small API,
+without a reference to this plugin: [Docs/API.md](Docs/API.md). The
+[Sections](https://github.com/viktor-ferenczi/se-sections) plugin uses it, so a cut or
+a delete with Sections is undone with Ctrl-Z when both plugins are loaded.
+
 Design: [Docs/DESIGN.md](Docs/DESIGN.md). It records what the plugin hooks, how undo is
 replayed through the game's own requests so multiplayer stays in sync, what is
 allowed in survival, and how the server companion works.

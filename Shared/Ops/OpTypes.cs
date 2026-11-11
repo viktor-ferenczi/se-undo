@@ -20,5 +20,6 @@ public static class OpTypes
         typeof(SetProgramOp),
         typeof(SetCustomDataOp),
         typeof(SetToolbarSlotOp),
+        typeof(PluginStepOp),
     };
 }

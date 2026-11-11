@@ -34,6 +34,11 @@ public sealed class RazeCapture : ICapture
     private List<MyCubeGrid> group;
     private List<MyObjectBuilder_CubeGrid> groupBuilders;
 
+    // Set for a removal another plugin or a mod announced through UndoApi: its own
+    // label, and the grids it closes along with the blocks
+    private string label;
+    private List<MyCubeGrid> closing = new List<MyCubeGrid>();
+
     public bool Settled => watch.Settled && spills.All(s => s.Settled);
 
     public void Abort()
@@ -43,7 +48,12 @@ public sealed class RazeCapture : ICapture
             spill.Close();
     }
 
-    public static RazeCapture Begin(MyCubeGrid grid, IEnumerable<Vector3I> positions)
+    public static RazeCapture Begin(
+        MyCubeGrid grid,
+        IEnumerable<Vector3I> positions,
+        string label = null,
+        List<MyCubeGrid> closing = null
+    )
     {
         var blocks = positions
             .Select(grid.GetCubeBlock)
@@ -53,11 +63,21 @@ public sealed class RazeCapture : ICapture
         if (blocks.Count == 0)
             return null;
 
-        var group = blocks.Any(NeedsGroupBackup) ? StoredGroups.GroupOf(grid) : null;
+        // An announced removal that closes grids, or the grid itself by removing all of
+        // its blocks, is undone by putting the whole group back
+        closing ??= new List<MyCubeGrid>();
+        var group =
+            blocks.Any(NeedsGroupBackup)
+            || closing.Count != 0
+            || (label != null && blocks.Count == grid.BlocksCount)
+                ? StoredGroups.GroupOf(grid).Union(closing).ToList()
+                : null;
         var capture = new RazeCapture
         {
             grid = grid,
             blocks = blocks,
+            label = label,
+            closing = closing,
             group = group,
             groupBuilders = group == null ? null : StoredGroups.Capture(group),
             // Not the copy variant: the block comes back as itself, entity name included
@@ -152,12 +172,8 @@ public sealed class RazeCapture : ICapture
         if (splits.Count != 0)
             reverse.Add(new MergeBackOp { Grid = handle, Pieces = splits });
 
-        var label = $"removed {Recorder.Plural(removed.Count, "block")}";
-        if (splits.Count != 0)
-            label += $", {Recorder.Plural(splits.Count, "part")} split off";
-
         Recorder.Commit(
-            label,
+            Label(removed.Count, splits.Count),
             new List<Op>
             {
                 new RazeBlocksOp
@@ -169,6 +185,12 @@ public sealed class RazeCapture : ICapture
             },
             reverse
         );
+    }
+
+    private string Label(int removed, int splits)
+    {
+        var text = label ?? $"removed {Recorder.Plural(removed, "block")}";
+        return splits == 0 ? text : $"{text}, {Recorder.Plural(splits, "part")} split off";
     }
 
     // The removal took a mechanical connection apart. What it held comes loose and
@@ -187,10 +209,7 @@ public sealed class RazeCapture : ICapture
             })
             .ToList();
 
-        var label = $"removed {Recorder.Plural(removed.Count, "block")}";
-        if (splits.Count != 0)
-            label += $", {Recorder.Plural(splits.Count, "part")} split off";
-
+        var label = Label(removed.Count, splits.Count);
         var forward = new List<Op>
         {
             new RazeBlocksOp
@@ -200,6 +219,8 @@ public sealed class RazeCapture : ICapture
                 Pieces = splits,
             },
         };
+        if (closing.Count != 0)
+            forward.Add(new CloseGridsOp { Grids = closing.Select(Recorder.Handle).ToList() });
         StoredGroups.Save(
             groupBuilders,
             StoreReason.Snapshot,

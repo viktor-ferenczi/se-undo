@@ -802,6 +802,8 @@ Shared/                     both plugins: everything that runs where the server 
   GridStore/                GridStoreFolder (entry files, index, hashing, staged entries),
                             StoreRetention (budgets and cleanup), both without game
                             references; StoredGroups (the game side, the oversized question)
+  Api/                      section 15: UndoApi, the functions other plugins and mods
+                            get through a mod message
   Companion/                section 14: Protocol and RequestLimiter (no game references),
                             CompanionServer (handshake, steps, backups, the served
                             histories in the save), ServedRecordPatches (the record hooks
@@ -930,7 +932,7 @@ view ray passes a terminal detector of the block before it hits the model, so th
 turret controller, an open frame with its console inside, is turned to face the
 floor and the character looks at its screen from one cell away. The station also has
 a programmable block, turned the same way, and the world has scripts enabled. The PB
-row is a skipped test until SE1-0060; it was checked by hand, see section 16.
+row is a skipped test until SE1-0060; it was checked by hand, see section 17.
 
 The persistence, retention, oversized and dialog rows followed on 2026-10-01
 (`tests/test_grid_store.py`, `tests/test_world_save.py`): 30 tests and one skipped,
@@ -1232,7 +1234,40 @@ and with their history in the host's world. This was the other open point of SE1
 
 Run in game on 2026-10-07 (SE1-0098), see the lobby rows of section 13.
 
-## 15. Risks and open points
+## 15. API for plugins and mods
+
+Added in 0.3.0 (SE-606). Other plugins and mods put steps into a player's history
+through `Shared/Api/UndoApi.cs`; [API.md](API.md) is the caller's guide. The
+Sections plugin is the first user.
+
+- No assembly reference in either direction. A caller sends the mod message
+  487710606 with an `Action<Dictionary<string, Delegate>>`, and Undo's handler
+  calls it with the functions. `SendModMessage` runs the handlers inside the call,
+  so the answer is there when it returns, and nothing answers without Undo. Mod
+  scripts can do the same: `Action<>`, `Func<>`, the members of `Delegate` and
+  `System.Collections.Generic` are on the mod whitelist
+  (`MySpaceGameDefaultIlChecker.AllowDefaultNamespaces`).
+- The handler is registered with the session: from `UndoSession.LoadData` in the
+  client plugin, with the companion's start on a dedicated server, and dropped on
+  unload together with the step handlers.
+- Each function names the player by Steam id (0 for the local one) and runs as
+  that player's actor (section 14), only where `Recorder.CanRecord` holds for it
+  and on the main thread. A caller on a client of a server gets false; its server
+  side, a companion of its own, calls Undo there with the player's id.
+- `RecordRemoval` begins a `RazeCapture` before the caller removes the blocks, by
+  whatever means, with the caller's label. The capture settles and commits like a
+  removal of the cube builder: the blocks come back with their ids, split parts
+  merge back. Grids the caller closes along with the blocks, and a removal of all
+  blocks of a grid, take the group backup of section 7, and the forward ops close
+  those grids again on redo. Such a capture is not joined with the removals of the
+  same frame, it is a step of its own.
+- `AddStep` commits a node of two `PluginStepOp`s that carry the owner and the
+  caller's data, saved with the history. Applying one calls the handler the owner
+  registered with `RegisterStepHandler`; without one the step is refused with
+  "<owner> is not loaded". A handler's refusal is an `OpRefusedException`, its
+  exception marks the node's result unknown (section 10).
+
+## 16. Risks and open points
 
 - R1, reopened and closed again on 2026-10-02 (SE1-0079). What follows describes a
   Harmony patch on `MyTerminalValueControl<TBlock, TValue>.SetValue`, which worked for
@@ -1331,7 +1366,7 @@ Run in game on 2026-10-07 (SE1-0098), see the lobby rows of section 13.
   disappears and comes back under the same ids, within about a second, a few seconds
   on a busy machine. Found on 2026-10-07 (SE1-0098).
 
-## 16. Implementation order
+## 17. Implementation order
 
 Kept as the record of how the plugin was built. Since 0.1.1 the client paths, the
 client side history file and the survival rules without creative tools that steps 4,
