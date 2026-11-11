@@ -9,6 +9,7 @@ using Sandbox.Game.Multiplayer;
 using Sandbox.Game.World;
 using Sandbox.ModAPI;
 using Shared;
+using Shared.Api;
 using Shared.Apply;
 using Shared.Companion;
 using Shared.History;
@@ -52,6 +53,7 @@ public class UndoSession : MySessionComponentBase
         MyEntities.OnEntityAdd += OnEntityAdd;
         MySession.Static.OnSavingCheckpoint += OnSavingCheckpoint;
         MySession.OnUnloading += OnUnloading;
+        UndoApi.Start();
     }
 
     // Entities exist by now, so most terminal controls do too, and the session

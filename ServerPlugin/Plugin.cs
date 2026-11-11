@@ -5,6 +5,7 @@ using HarmonyLib;
 using PluginSdk.Config;
 using Sandbox.Game.World;
 using Shared;
+using Shared.Api;
 using Shared.Companion;
 using Shared.Session;
 using VRage.FileSystem;
@@ -12,8 +13,8 @@ using VRage.Plugins;
 
 // Define assembly version when compiled by Magnetar
 #if !LOCAL_BUILD
-[assembly: AssemblyVersion("0.2.2.0")]
-[assembly: AssemblyFileVersion("0.2.2.0")]
+[assembly: AssemblyVersion("0.3.0.0")]
+[assembly: AssemblyFileVersion("0.3.0.0")]
 
 #endif
 
@@ -66,7 +67,10 @@ public class Plugin : IPlugin
             // Magnetar initializes plugins after the world loaded, too late for a
             // session component of the plugin to be registered
             if (!CompanionServer.Running && MySession.Static?.Ready == true)
+            {
                 CompanionServer.Start();
+                UndoApi.Start();
+            }
             Actors.Update();
         }
         catch (Exception e)
