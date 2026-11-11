@@ -12,7 +12,8 @@ public abstract class Op
     public abstract string Validate(GridRegistry grids);
 
     // Applies the op. Returns null when it completed synchronously, otherwise a check
-    // that turns true once the asynchronous rest (a grid split, a server broadcast) is done.
+    // that turns true once the asynchronous rest (a grid split, a server broadcast, paint
+    // requests spread over frames) is done.
     public abstract Func<bool> Apply(GridRegistry grids);
 
     // Called on every op of a step before any of them is applied, with the ops of

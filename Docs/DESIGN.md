@@ -748,9 +748,11 @@ snapshot of its own.
 4. The local server runs most requests inside the call. Ops that still complete later
    return a check, which becomes the history's `Pending` op: a close (the grids marked
    for close), a group snapshot restore (the old grids gone, then the group created
-   again) and a replayed removal that splits the grid (the splits settled, the piece
-   handles rebound). The executor keeps the history locked for further undo or redo
-   until the check passes or the pending timeout of 5 seconds passes. A close is
+   again), a replayed removal that splits the grid (the splits settled, the piece
+   handles rebound) and a repaint too big for one frame's paint budget (its requests
+   all sent, `PaintBudget`). The executor keeps the history locked for further undo
+   or redo until the check passes or the pending timeout of 5 seconds passes, plus
+   the time an op says the rest of its work needs (`Op.PendingTime`). A close is
    checked because the game refuses an economy station without an error. On timeout
    the node is marked "unknown result", and the next step across it is refused with
    "the result of X is unknown". An exception while applying the ops marks the node
