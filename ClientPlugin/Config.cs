@@ -52,6 +52,8 @@ public class Config : INotifyPropertyChanged, IUndoOptions
 
     private bool notifications = true;
     private int notificationDurationMs = 2000;
+    private bool warnOnSymmetryMismatch = true;
+    private bool warnOnSymmetrySplit = true;
     private bool debugStatusFile;
     private LogLevel logLevel = LogLevel.Info;
 
@@ -371,6 +373,22 @@ public class Config : INotifyPropertyChanged, IUndoOptions
     {
         get => notificationDurationMs;
         set => SetField(ref notificationDurationMs, value);
+    }
+
+    [Checkbox(
+        description: "Red warning when an edit made with symmetry on did not come out the same at every mirror image"
+    )]
+    public bool WarnOnSymmetryMismatch
+    {
+        get => warnOnSymmetryMismatch;
+        set => SetField(ref warnOnSymmetryMismatch, value);
+    }
+
+    [Checkbox(description: "Red warning when a removal made with symmetry on split the grid")]
+    public bool WarnOnSymmetrySplit
+    {
+        get => warnOnSymmetrySplit;
+        set => SetField(ref warnOnSymmetrySplit, value);
     }
 
     [Checkbox(

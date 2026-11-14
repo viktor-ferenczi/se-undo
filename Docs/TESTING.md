@@ -97,6 +97,8 @@ administrator, creative tools on:
   and the histories in the world after an autosave.
 - `test_symmetry_ds.py`, a server with it: every test of `tests/test_symmetry.py`
   from the first client, whose requests carry the mirror copies.
+- `test_symmetry_warnings_ds.py`, a server with it: every test of
+  `tests/test_symmetry_warnings.py`. The client compares after the server's answer.
 - `test_snapshots_ds.py`, a server with it: every test of `tests/test_snapshots.py`,
   with the snapshots in the server's grid store of the player and the restore asked
   for through the dialog; `SERVER_UNDO_CONFIG` sets the companion's interval.
@@ -148,7 +150,8 @@ teleport. `tests/lobby/test_lobby.py` checks that the host's own undo and redo r
 the joined client (blocks under their old ids, merged parts, re-created grids, block
 groups, programs), and that the host serves the joined player like the companion.
 `tests/lobby/test_symmetry_lobby.py` runs the tests of `tests/test_symmetry.py` as the
-joined player. `tests/lobby/test_snapshots_lobby.py` and `test_snapshots_host.py` run
+joined player, and `test_symmetry_warnings_lobby.py` those of
+`tests/test_symmetry_warnings.py`. `tests/lobby/test_snapshots_lobby.py` and `test_snapshots_host.py` run
 the tests of `tests/test_snapshots.py` as the joined player and as the host, and
 `test_paint_replacer_lobby.py`, `test_paint_replacer_host.py` and their `_symmetry`
 versions do the same for the Paint Replacer tests, and `test_paint_budget_lobby.py`

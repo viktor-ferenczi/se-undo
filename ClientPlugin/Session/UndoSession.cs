@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using ClientPlugin.Companion;
 using ClientPlugin.Gui;
 using ClientPlugin.Record;
+using ClientPlugin.Symmetry;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Multiplayer;
 using Sandbox.Game.World;
@@ -109,6 +111,7 @@ public class UndoSession : MySessionComponentBase
         CompanionClient.Stop();
         CompanionServer.Stop();
         Actors.Clear();
+        SymmetryWatch.Clear();
         WorldSavePatches.Clear();
     }
 
@@ -188,6 +191,7 @@ public class UndoSession : MySessionComponentBase
         if (Document != null)
             TerminalContextPatches.Update();
         Actors.Update();
+        SymmetryWatch.Update();
     }
 
     // What the server's companion answered to a step. Logged and written to the
@@ -236,7 +240,11 @@ public class UndoSession : MySessionComponentBase
                     histories,
                     LastMessage,
                     size,
-                    "\"companion\":" + (CompanionClient.Connected ? "true" : "false"),
+                    "\"companion\":"
+                        + (CompanionClient.Connected ? "true" : "false")
+                        + ",\"warnings\":["
+                        + string.Join(",", SymmetryWatch.Warnings.Select(StatusFile.Quote))
+                        + "]",
                     Permissions.Mode.ToString()
                 )
             );

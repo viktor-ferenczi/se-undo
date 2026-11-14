@@ -31,6 +31,16 @@ this plugin is enabled those move to Ctrl-Shift-Z and Ctrl-Shift-Y. In gameplay 
 is still relative dampeners while there is nothing to undo. All four bindings,
 the history limits and the storage locations are in the plugin settings.
 
+With the cube builder's symmetry on, an edit can silently come out different at a
+mirror image: a copy's cell is taken, or there is no block there to remove or paint.
+The plugin then shows a red warning that says how many of the copies were done, like
+"Symmetry mismatch: placed 3 of 4 mirrored blocks", and another one when a removal
+made with symmetry split the grid. They come once per edit, as soon as the result is
+known, also on a server without the companion. Both can be switched off in the
+plugin settings.
+
+![Symmetry mismatch warning](Docs/SymmetryMismatchWarning.png)
+
 Where it works, always in creative or in survival with creative tools enabled:
 
 - Offline games.

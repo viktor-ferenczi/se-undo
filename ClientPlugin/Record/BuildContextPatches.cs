@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using ClientPlugin.Symmetry;
 using HarmonyLib;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Cube;
@@ -36,6 +37,10 @@ public static class BuildContextPatches
             out List<BlockPlacement> __state
         )
         {
+            SymmetryWatch.Placing(
+                __instance,
+                locations.Select(l => (l.Min, (MyDefinitionId)l.BlockDefinition))
+            );
             __state = !Recorder.CanRecord
                 ? null
                 : locations
@@ -80,6 +85,11 @@ public static class BuildContextPatches
             out List<BlockPlacement> __state
         )
         {
+            MyDefinitionId id = area.DefinitionId;
+            SymmetryWatch.Placing(
+                __instance,
+                ServedRecordPatches.Placements(__instance, area).Select(p => (p.Min, id))
+            );
             __state = Recorder.CanRecord ? ServedRecordPatches.Placements(__instance, area) : null;
             if (__state is { Count: > 0 })
                 Recorder.BeforeEdit(__instance);
@@ -123,6 +133,8 @@ public static class BuildContextPatches
     {
         private static void Prefix(MyCubeGrid __instance, List<Vector3I> locations)
         {
+            if (grinderDepth == 0)
+                SymmetryWatch.Removing(__instance, locations);
             if (Recorder.CanRecord && grinderDepth == 0)
                 Recorder.BeginRaze(__instance, locations);
         }
@@ -138,6 +150,7 @@ public static class BuildContextPatches
     {
         private static void Prefix(MyCubeGrid __instance, ref Vector3I pos, ref Vector3UByte size)
         {
+            SymmetryWatch.Removing(__instance, ServedRecordPatches.Area(pos, size));
             if (Recorder.CanRecord)
                 Recorder.BeginRaze(__instance, ServedRecordPatches.Area(pos, size));
         }
@@ -150,6 +163,7 @@ public static class BuildContextPatches
     {
         private static void Prefix(MyCubeGrid __instance, ref Vector3I pos, ref Vector3UByte size)
         {
+            SymmetryWatch.Removing(__instance, ServedRecordPatches.Area(pos, size));
             if (Recorder.CanRecord)
                 Recorder.BeginRaze(__instance, ServedRecordPatches.Area(pos, size));
         }
@@ -161,7 +175,10 @@ public static class BuildContextPatches
         private static void Prefix(MyCubeGrid __instance)
         {
             var batch = __instance.m_delayedRazeBatch;
-            if (Recorder.CanRecord && __instance.m_isRazeBatchDelayed && !__instance.Closed)
+            if (!__instance.m_isRazeBatchDelayed || __instance.Closed)
+                return;
+            SymmetryWatch.Removing(__instance, ServedRecordPatches.Area(batch.Pos, batch.Size));
+            if (Recorder.CanRecord)
                 Recorder.BeginRaze(__instance, ServedRecordPatches.Area(batch.Pos, batch.Size));
         }
     }
@@ -184,5 +201,19 @@ public static class BuildContextPatches
             if (Recorder.CanRecord)
                 Recorder.OpenStroke(__instance);
         }
+    }
+
+    // The blocks a paint request covers, for the symmetry warning
+    [HarmonyPatch]
+    private static class PaintBlocksPatch
+    {
+        private static IEnumerable<System.Reflection.MethodBase> TargetMethods()
+        {
+            yield return AccessTools.Method(typeof(MyCubeGrid), nameof(MyCubeGrid.SkinBlocks));
+            yield return AccessTools.Method(typeof(MyCubeGrid), nameof(MyCubeGrid.ColorBlocks));
+        }
+
+        private static void Prefix(MyCubeGrid __instance, Vector3I min, Vector3I max) =>
+            SymmetryWatch.Painting(__instance, min, max);
     }
 }
