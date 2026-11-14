@@ -99,6 +99,9 @@ administrator, creative tools on:
   from the first client, whose requests carry the mirror copies.
 - `test_symmetry_warnings_ds.py`, a server with it: every test of
   `tests/test_symmetry_warnings.py`. The client compares after the server's answer.
+- `test_edit_guards_ds.py`, a server with it: every test of
+  `tests/test_edit_guards.py`; `CLIENT_UNDO_CONFIG` switches the two options on for
+  the client.
 - `test_snapshots_ds.py`, a server with it: every test of `tests/test_snapshots.py`,
   with the snapshots in the server's grid store of the player and the restore asked
   for through the dialog; `SERVER_UNDO_CONFIG` sets the companion's interval.

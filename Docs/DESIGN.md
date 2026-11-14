@@ -298,6 +298,28 @@ need the history, so it also works on a server without the companion.
   split the grid. Each kind has one red HUD notification whose text the next
   warning replaces, so held keys do not stack them.
 
+Two options act before the edit instead, both off by default (`EditGuard`). The cube
+builder sends each mirror copy of a line or an area as a request of its own in one
+frame, so one request alone does not show whether the edit is symmetric. With an
+option on, the record patches skip the game's method and hand the request to the
+guard, which looks at all requests of the frame on a grid in the next update and
+then sends them on, through the same patched methods, so they are recorded and
+watched as usual.
+
+- "Prevent symmetry break", with symmetry on: the blocks the requests would place
+  (free cells only), remove or paint are counted with their mirror images by the
+  rules above. If an image is missing nothing is sent, and a message box with an OK
+  button says how many of the copies would have been done. Vanilla line and area
+  builds whose copies come out unequal are stopped too.
+- "Confirm grid split", for every removal the local player asks for through the
+  cube builder's requests, also without symmetry: the parts the grid would be in
+  without the blocks are counted over `MySlimBlock.Neighbours`, which the game's own
+  split test walks. More than one part asks Yes or No before anything is sent. The
+  red split warning is not shown while this option is on. Grinding is not asked
+  about: the server removes a ground down block, there is no request to hold.
+- Both decide from the grid as this client has it; the server may still refuse a
+  request. While a dialog is open further requests are dropped.
+
 ## 6. Entity references and id remapping
 
 Grids are referred to by a handle, a plugin assigned integer stored in the history.
@@ -830,6 +852,8 @@ other tunables.
 | Notification duration ms | 2000 | HUD text lifetime |
 | Warn on symmetry mismatch | on | Red HUD warning when an edit made with the cube builder's symmetry on did not come out the same at every mirror image, see "Symmetry warnings" in section 5 |
 | Warn on symmetry split | on | Red HUD warning when a removal made with symmetry on split the grid |
+| Confirm grid split | off | Asks before a removal that would split the grid, with or without symmetry; the split warning is not shown then |
+| Prevent symmetry break | off | With symmetry on, an edit that would not be the same at every mirror image is not made; a message with an OK button says why |
 | Debug status file | off | Writes `<Client storage root>/status.json` after every history change, for the tests: the session mode, both histories, the last notification and the symmetry warnings shown |
 | Log level | Info | Plugin log verbosity in the game log |
 
@@ -903,7 +927,8 @@ ClientPlugin/
   Companion/                CompanionClient: the handshake, steps, the server's answers
   Record/                   BuildContextPatches, GridContextPatches and
                             TerminalContextPatches: the local player's record hooks
-  Symmetry/                 SymmetryWatch: the warnings after a symmetry edit, section 5
+  Symmetry/                 SymmetryWatch: the warnings after a symmetry edit; EditGuard:
+                            the checks before an edit, section 5
   Input/                    key handlers of the build and terminal contexts, IsControl
                             rewrite
   Text/                     TextHistory (snapshots, no game references) and

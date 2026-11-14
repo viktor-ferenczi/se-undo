@@ -31,12 +31,31 @@ public static class BuildContextPatches
     )]
     private static class BuildBlocksPatch
     {
-        private static void Prefix(
+        private static bool Prefix(
             MyCubeGrid __instance,
+            Vector3 colorMaskHsv,
+            MyStringHash skinId,
             HashSet<MyCubeGrid.MyBlockLocation> locations,
+            long builderEntityId,
+            long ownerId,
             out List<BlockPlacement> __state
         )
         {
+            __state = null;
+            // The cube builder clears its set after the call
+            var copy = new HashSet<MyCubeGrid.MyBlockLocation>(locations);
+            if (
+                EditGuard.Placing(
+                    __instance,
+                    () =>
+                        copy.Select(l => (l.Min, l.Max, (MyDefinitionId)l.BlockDefinition))
+                            .ToList(),
+                    () =>
+                        __instance.BuildBlocks(colorMaskHsv, skinId, copy, builderEntityId, ownerId)
+                )
+            )
+                return false;
+
             SymmetryWatch.Placing(
                 __instance,
                 locations.Select(l => (l.Min, (MyDefinitionId)l.BlockDefinition))
@@ -56,6 +75,7 @@ public static class BuildContextPatches
                     .ToList();
             if (__state is { Count: > 0 })
                 Recorder.BeforeEdit(__instance);
+            return true;
         }
 
         private static void Postfix(
@@ -79,13 +99,31 @@ public static class BuildContextPatches
     )]
     private static class BuildBlocksAreaPatch
     {
-        private static void Prefix(
+        private static bool Prefix(
             MyCubeGrid __instance,
             ref MyCubeGrid.MyBlockBuildArea area,
+            long builderEntityId,
+            long ownerId,
             out List<BlockPlacement> __state
         )
         {
+            __state = null;
             MyDefinitionId id = area.DefinitionId;
+            var copy = area;
+            Vector3I size = (Vector3I)area.BlockMax - (Vector3I)area.BlockMin;
+            if (
+                EditGuard.Placing(
+                    __instance,
+                    () =>
+                        ServedRecordPatches
+                            .Placements(__instance, copy)
+                            .Select(p => (p.Min, p.Min + size, id))
+                            .ToList(),
+                    () => __instance.BuildBlocks(ref copy, builderEntityId, ownerId)
+                )
+            )
+                return false;
+
             SymmetryWatch.Placing(
                 __instance,
                 ServedRecordPatches.Placements(__instance, area).Select(p => (p.Min, id))
@@ -93,6 +131,7 @@ public static class BuildContextPatches
             __state = Recorder.CanRecord ? ServedRecordPatches.Placements(__instance, area) : null;
             if (__state is { Count: > 0 })
                 Recorder.BeforeEdit(__instance);
+            return true;
         }
 
         private static void Postfix(
@@ -131,12 +170,31 @@ public static class BuildContextPatches
     )]
     private static class RazeBlocksPatch
     {
-        private static void Prefix(MyCubeGrid __instance, List<Vector3I> locations)
+        private static bool Prefix(
+            MyCubeGrid __instance,
+            List<Vector3I> locations,
+            long builderEntityId,
+            ulong user
+        )
         {
-            if (grinderDepth == 0)
-                SymmetryWatch.Removing(__instance, locations);
-            if (Recorder.CanRecord && grinderDepth == 0)
+            if (grinderDepth != 0)
+                return true;
+
+            // The cube builder clears its list after the call
+            var copy = locations.ToList();
+            if (
+                EditGuard.Removing(
+                    __instance,
+                    copy,
+                    () => __instance.RazeBlocks(copy, builderEntityId, user)
+                )
+            )
+                return false;
+
+            SymmetryWatch.Removing(__instance, locations);
+            if (Recorder.CanRecord)
                 Recorder.BeginRaze(__instance, locations);
+            return true;
         }
     }
 
@@ -148,11 +206,28 @@ public static class BuildContextPatches
     )]
     private static class RazeAreaPatch
     {
-        private static void Prefix(MyCubeGrid __instance, ref Vector3I pos, ref Vector3UByte size)
+        private static bool Prefix(
+            MyCubeGrid __instance,
+            ref Vector3I pos,
+            ref Vector3UByte size,
+            long builderEntityId
+        )
         {
+            Vector3I heldPos = pos;
+            Vector3UByte heldSize = size;
+            if (
+                EditGuard.Removing(
+                    __instance,
+                    ServedRecordPatches.Area(pos, size),
+                    () => __instance.RazeBlocks(ref heldPos, ref heldSize, builderEntityId)
+                )
+            )
+                return false;
+
             SymmetryWatch.Removing(__instance, ServedRecordPatches.Area(pos, size));
             if (Recorder.CanRecord)
                 Recorder.BeginRaze(__instance, ServedRecordPatches.Area(pos, size));
+            return true;
         }
     }
 
@@ -161,11 +236,28 @@ public static class BuildContextPatches
     [HarmonyPatch(typeof(MyCubeGrid), nameof(MyCubeGrid.RazeBlocksDelayed))]
     private static class RazeDelayedPatch
     {
-        private static void Prefix(MyCubeGrid __instance, ref Vector3I pos, ref Vector3UByte size)
+        private static bool Prefix(
+            MyCubeGrid __instance,
+            ref Vector3I pos,
+            ref Vector3UByte size,
+            long builderEntityId
+        )
         {
+            Vector3I heldPos = pos;
+            Vector3UByte heldSize = size;
+            if (
+                EditGuard.Removing(
+                    __instance,
+                    ServedRecordPatches.Area(pos, size),
+                    () => __instance.RazeBlocksDelayed(ref heldPos, ref heldSize, builderEntityId)
+                )
+            )
+                return false;
+
             SymmetryWatch.Removing(__instance, ServedRecordPatches.Area(pos, size));
             if (Recorder.CanRecord)
                 Recorder.BeginRaze(__instance, ServedRecordPatches.Area(pos, size));
+            return true;
         }
     }
 
@@ -196,24 +288,32 @@ public static class BuildContextPatches
             yield return AccessTools.Method(typeof(MyCubeGrid), nameof(MyCubeGrid.ColorGrid));
         }
 
-        private static void Prefix(MyCubeGrid __instance)
+        // A paint of blocks may be held back, see EditGuard; a paint of the whole
+        // grid has no mirror images to miss
+        private static bool Prefix(
+            MyCubeGrid __instance,
+            System.Reflection.MethodBase __originalMethod,
+            object[] __args
+        )
         {
+            if (__args.Length > 1 && __args[0] is Vector3I min && __args[1] is Vector3I max)
+            {
+                var args = (object[])__args.Clone();
+                if (
+                    EditGuard.Painting(
+                        __instance,
+                        min,
+                        max,
+                        () => __originalMethod.Invoke(__instance, args)
+                    )
+                )
+                    return false;
+
+                SymmetryWatch.Painting(__instance, min, max);
+            }
             if (Recorder.CanRecord)
                 Recorder.OpenStroke(__instance);
+            return true;
         }
-    }
-
-    // The blocks a paint request covers, for the symmetry warning
-    [HarmonyPatch]
-    private static class PaintBlocksPatch
-    {
-        private static IEnumerable<System.Reflection.MethodBase> TargetMethods()
-        {
-            yield return AccessTools.Method(typeof(MyCubeGrid), nameof(MyCubeGrid.SkinBlocks));
-            yield return AccessTools.Method(typeof(MyCubeGrid), nameof(MyCubeGrid.ColorBlocks));
-        }
-
-        private static void Prefix(MyCubeGrid __instance, Vector3I min, Vector3I max) =>
-            SymmetryWatch.Painting(__instance, min, max);
     }
 }

@@ -112,6 +112,7 @@ public class UndoSession : MySessionComponentBase
         CompanionServer.Stop();
         Actors.Clear();
         SymmetryWatch.Clear();
+        EditGuard.Clear();
         WorldSavePatches.Clear();
     }
 
@@ -191,6 +192,7 @@ public class UndoSession : MySessionComponentBase
         if (Document != null)
             TerminalContextPatches.Update();
         Actors.Update();
+        EditGuard.Update();
         SymmetryWatch.Update();
     }
 
@@ -244,6 +246,9 @@ public class UndoSession : MySessionComponentBase
                         + (CompanionClient.Connected ? "true" : "false")
                         + ",\"warnings\":["
                         + string.Join(",", SymmetryWatch.Warnings.Select(StatusFile.Quote))
+                        + "]"
+                        + ",\"dialogs\":["
+                        + string.Join(",", EditGuard.Dialogs.Select(StatusFile.Quote))
                         + "]",
                     Permissions.Mode.ToString()
                 )

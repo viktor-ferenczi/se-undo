@@ -41,6 +41,14 @@ plugin settings.
 
 ![Symmetry mismatch warning](Docs/SymmetryMismatchWarning.png)
 
+Two stricter checks are off by default and act before the edit, so they do not depend
+on undo:
+
+- **Confirm grid split** asks before any removal that would split the grid, with or
+  without symmetry. It replaces the split warning.
+- **Prevent symmetry break** does not make an edit that would differ at a mirror image.
+  A message with an OK button says how many of the copies would have been done.
+
 Where it works, always in creative or in survival with creative tools enabled:
 
 - Offline games.

@@ -294,7 +294,8 @@ public static class SymmetryWatch
         var applied = edit.Items.Where(i => Applied(edit, i)).ToList();
         if (config.WarnOnSymmetryMismatch && applied.Count != 0)
             CheckMirrors(edit, applied);
-        if (config.WarnOnSymmetrySplit && pieces != 0)
+        // With the question before a removal on, the player has confirmed the split
+        if (config.WarnOnSymmetrySplit && !config.ConfirmGridSplit && pieces != 0)
             Warn(ref splitHud, $"Grid split: {Plural(pieces, "part")} split off");
     }
 
@@ -302,17 +303,52 @@ public static class SymmetryWatch
     private static void CheckMirrors(Edit edit, List<Item> applied)
     {
         // Min and max corner of each changed block. A removed block still knows its own.
-        var boxes = new Dictionary<Vector3I, (Vector3I Max, MySlimBlock Block)>();
+        var boxes = new Dictionary<Vector3I, (Vector3I Max, MySlimBlock Tag)>();
         foreach (var item in applied)
         {
             var block = item.Block ?? edit.Grid.BlockAt(item.Min);
             boxes[block.Min] = (block.Max, block);
         }
 
+        var (expected, missing) = Count(
+            edit.Mirrors,
+            boxes,
+            (source, min, max) => Same(edit, source, min, max, boxes)
+        );
+        if (missing == 0)
+            return;
+
+        var verb = edit.Kind switch
+        {
+            Kind.Place => "placed",
+            Kind.Remove => "removed",
+            _ => "painted",
+        };
+        Warn(
+            ref mismatchHud,
+            $"Symmetry mismatch: {verb} {expected - missing} of {expected} mirrored blocks"
+        );
+    }
+
+    // How many blocks the boxes and all their mirror images are, and how many of
+    // those images are not the same by the given test. A box is a block's min
+    // corner with its max corner and whatever the test needs.
+    public static (int Expected, int Missing) Count<T>(
+        MyCubeGrid grid,
+        Dictionary<Vector3I, (Vector3I Max, T Tag)> boxes,
+        Func<T, Vector3I, Vector3I, bool> same
+    ) => Count(Mirrors(grid), boxes, same);
+
+    private static (int Expected, int Missing) Count<T>(
+        List<List<Plane>> mirrors,
+        Dictionary<Vector3I, (Vector3I Max, T Tag)> boxes,
+        Func<T, Vector3I, Vector3I, bool> same
+    )
+    {
         var expected = new HashSet<Vector3I>(boxes.Keys);
         var missing = new HashSet<Vector3I>();
         foreach (var pair in boxes)
-        foreach (var mirror in edit.Mirrors)
+        foreach (var mirror in mirrors)
         {
             Vector3I a = pair.Key,
                 b = pair.Value.Max;
@@ -324,23 +360,21 @@ public static class SymmetryWatch
             var min = Vector3I.Min(a, b);
             var max = Vector3I.Max(a, b);
             expected.Add(min);
-            if (!Same(edit, pair.Value.Block, min, max, boxes))
+            if (!same(pair.Value.Tag, min, max))
                 missing.Add(min);
         }
-        if (missing.Count == 0)
-            return;
-
-        var verb = edit.Kind switch
-        {
-            Kind.Place => "placed",
-            Kind.Remove => "removed",
-            _ => "painted",
-        };
-        Warn(
-            ref mismatchHud,
-            $"Symmetry mismatch: {verb} {expected.Count - missing.Count} of {expected.Count} mirrored blocks"
-        );
+        return (expected.Count, missing.Count);
     }
+
+    // The cube builder mirrors edits on this grid
+    public static bool SymmetryOn(MyCubeGrid grid) =>
+        MyCubeBuilder.Static?.UseSymmetry == true && Mirrors(grid).Count != 0;
+
+    // The same block type, or the variant the game builds as its mirror copy
+    public static bool SameType(MyCubeBlockDefinition a, MyCubeBlockDefinition b) =>
+        a.Id == b.Id
+        || a.Id.TypeId == b.Id.TypeId
+            && (a.MirroringBlock == b.Id.SubtypeName || b.MirroringBlock == a.Id.SubtypeName);
 
     // Whether the mirror image of a changed block got the same change: a block of
     // the same type, or of its mirrored variant, in exactly the mirrored cells was
@@ -351,7 +385,7 @@ public static class SymmetryWatch
         MySlimBlock source,
         Vector3I min,
         Vector3I max,
-        Dictionary<Vector3I, (Vector3I Max, MySlimBlock Block)> boxes
+        Dictionary<Vector3I, (Vector3I Max, MySlimBlock Tag)> boxes
     )
     {
         if (edit.Kind == Kind.Paint)
@@ -363,11 +397,7 @@ public static class SymmetryWatch
         if (!boxes.TryGetValue(min, out var other) || other.Max != max)
             return false;
 
-        MyCubeBlockDefinition a = source.BlockDefinition,
-            b = other.Block.BlockDefinition;
-        return a.Id == b.Id
-            || a.Id.TypeId == b.Id.TypeId
-                && (a.MirroringBlock == b.Id.SubtypeName || b.MirroringBlock == a.Id.SubtypeName);
+        return SameType(source.BlockDefinition, other.Tag.BlockDefinition);
     }
 
     private static string Plural(int count, string noun) =>
