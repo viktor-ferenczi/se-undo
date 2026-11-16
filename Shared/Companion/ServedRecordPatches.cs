@@ -549,6 +549,7 @@ public static class ServedRecordPatches
         nameof(MyToolbar.SetItemAtIndex),
         typeof(int),
         typeof(MyToolbarItem),
+        typeof(bool),
         typeof(bool)
     )]
     private static class ToolbarSlotPatch
