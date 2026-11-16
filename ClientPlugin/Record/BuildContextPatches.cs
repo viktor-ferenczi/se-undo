@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using ClientPlugin.Symmetry;
 using HarmonyLib;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Cube;
@@ -30,12 +31,35 @@ public static class BuildContextPatches
     )]
     private static class BuildBlocksPatch
     {
-        private static void Prefix(
+        private static bool Prefix(
             MyCubeGrid __instance,
+            Vector3 colorMaskHsv,
+            MyStringHash skinId,
             HashSet<MyCubeGrid.MyBlockLocation> locations,
+            long builderEntityId,
+            long ownerId,
             out List<BlockPlacement> __state
         )
         {
+            __state = null;
+            // The cube builder clears its set after the call
+            var copy = new HashSet<MyCubeGrid.MyBlockLocation>(locations);
+            if (
+                EditGuard.Placing(
+                    __instance,
+                    () =>
+                        copy.Select(l => (l.Min, l.Max, (MyDefinitionId)l.BlockDefinition))
+                            .ToList(),
+                    () =>
+                        __instance.BuildBlocks(colorMaskHsv, skinId, copy, builderEntityId, ownerId)
+                )
+            )
+                return false;
+
+            SymmetryWatch.Placing(
+                __instance,
+                locations.Select(l => (l.Min, (MyDefinitionId)l.BlockDefinition))
+            );
             __state = !Recorder.CanRecord
                 ? null
                 : locations
@@ -51,6 +75,7 @@ public static class BuildContextPatches
                     .ToList();
             if (__state is { Count: > 0 })
                 Recorder.BeforeEdit(__instance);
+            return true;
         }
 
         private static void Postfix(
@@ -74,15 +99,39 @@ public static class BuildContextPatches
     )]
     private static class BuildBlocksAreaPatch
     {
-        private static void Prefix(
+        private static bool Prefix(
             MyCubeGrid __instance,
             ref MyCubeGrid.MyBlockBuildArea area,
+            long builderEntityId,
+            long ownerId,
             out List<BlockPlacement> __state
         )
         {
+            __state = null;
+            MyDefinitionId id = area.DefinitionId;
+            var copy = area;
+            Vector3I size = (Vector3I)area.BlockMax - (Vector3I)area.BlockMin;
+            if (
+                EditGuard.Placing(
+                    __instance,
+                    () =>
+                        ServedRecordPatches
+                            .Placements(__instance, copy)
+                            .Select(p => (p.Min, p.Min + size, id))
+                            .ToList(),
+                    () => __instance.BuildBlocks(ref copy, builderEntityId, ownerId)
+                )
+            )
+                return false;
+
+            SymmetryWatch.Placing(
+                __instance,
+                ServedRecordPatches.Placements(__instance, area).Select(p => (p.Min, id))
+            );
             __state = Recorder.CanRecord ? ServedRecordPatches.Placements(__instance, area) : null;
             if (__state is { Count: > 0 })
                 Recorder.BeforeEdit(__instance);
+            return true;
         }
 
         private static void Postfix(
@@ -121,10 +170,31 @@ public static class BuildContextPatches
     )]
     private static class RazeBlocksPatch
     {
-        private static void Prefix(MyCubeGrid __instance, List<Vector3I> locations)
+        private static bool Prefix(
+            MyCubeGrid __instance,
+            List<Vector3I> locations,
+            long builderEntityId,
+            ulong user
+        )
         {
-            if (Recorder.CanRecord && grinderDepth == 0)
+            if (grinderDepth != 0)
+                return true;
+
+            // The cube builder clears its list after the call
+            var copy = locations.ToList();
+            if (
+                EditGuard.Removing(
+                    __instance,
+                    copy,
+                    () => __instance.RazeBlocks(copy, builderEntityId, user)
+                )
+            )
+                return false;
+
+            SymmetryWatch.Removing(__instance, locations);
+            if (Recorder.CanRecord)
                 Recorder.BeginRaze(__instance, locations);
+            return true;
         }
     }
 
@@ -136,10 +206,28 @@ public static class BuildContextPatches
     )]
     private static class RazeAreaPatch
     {
-        private static void Prefix(MyCubeGrid __instance, ref Vector3I pos, ref Vector3UByte size)
+        private static bool Prefix(
+            MyCubeGrid __instance,
+            ref Vector3I pos,
+            ref Vector3UByte size,
+            long builderEntityId
+        )
         {
+            Vector3I heldPos = pos;
+            Vector3UByte heldSize = size;
+            if (
+                EditGuard.Removing(
+                    __instance,
+                    ServedRecordPatches.Area(pos, size),
+                    () => __instance.RazeBlocks(ref heldPos, ref heldSize, builderEntityId)
+                )
+            )
+                return false;
+
+            SymmetryWatch.Removing(__instance, ServedRecordPatches.Area(pos, size));
             if (Recorder.CanRecord)
                 Recorder.BeginRaze(__instance, ServedRecordPatches.Area(pos, size));
+            return true;
         }
     }
 
@@ -148,10 +236,28 @@ public static class BuildContextPatches
     [HarmonyPatch(typeof(MyCubeGrid), nameof(MyCubeGrid.RazeBlocksDelayed))]
     private static class RazeDelayedPatch
     {
-        private static void Prefix(MyCubeGrid __instance, ref Vector3I pos, ref Vector3UByte size)
+        private static bool Prefix(
+            MyCubeGrid __instance,
+            ref Vector3I pos,
+            ref Vector3UByte size,
+            long builderEntityId
+        )
         {
+            Vector3I heldPos = pos;
+            Vector3UByte heldSize = size;
+            if (
+                EditGuard.Removing(
+                    __instance,
+                    ServedRecordPatches.Area(pos, size),
+                    () => __instance.RazeBlocksDelayed(ref heldPos, ref heldSize, builderEntityId)
+                )
+            )
+                return false;
+
+            SymmetryWatch.Removing(__instance, ServedRecordPatches.Area(pos, size));
             if (Recorder.CanRecord)
                 Recorder.BeginRaze(__instance, ServedRecordPatches.Area(pos, size));
+            return true;
         }
     }
 
@@ -161,7 +267,10 @@ public static class BuildContextPatches
         private static void Prefix(MyCubeGrid __instance)
         {
             var batch = __instance.m_delayedRazeBatch;
-            if (Recorder.CanRecord && __instance.m_isRazeBatchDelayed && !__instance.Closed)
+            if (!__instance.m_isRazeBatchDelayed || __instance.Closed)
+                return;
+            SymmetryWatch.Removing(__instance, ServedRecordPatches.Area(batch.Pos, batch.Size));
+            if (Recorder.CanRecord)
                 Recorder.BeginRaze(__instance, ServedRecordPatches.Area(batch.Pos, batch.Size));
         }
     }
@@ -179,10 +288,32 @@ public static class BuildContextPatches
             yield return AccessTools.Method(typeof(MyCubeGrid), nameof(MyCubeGrid.ColorGrid));
         }
 
-        private static void Prefix(MyCubeGrid __instance)
+        // A paint of blocks may be held back, see EditGuard; a paint of the whole
+        // grid has no mirror images to miss
+        private static bool Prefix(
+            MyCubeGrid __instance,
+            System.Reflection.MethodBase __originalMethod,
+            object[] __args
+        )
         {
+            if (__args.Length > 1 && __args[0] is Vector3I min && __args[1] is Vector3I max)
+            {
+                var args = (object[])__args.Clone();
+                if (
+                    EditGuard.Painting(
+                        __instance,
+                        min,
+                        max,
+                        () => __originalMethod.Invoke(__instance, args)
+                    )
+                )
+                    return false;
+
+                SymmetryWatch.Painting(__instance, min, max);
+            }
             if (Recorder.CanRecord)
                 Recorder.OpenStroke(__instance);
+            return true;
         }
     }
 }

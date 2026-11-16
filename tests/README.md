@@ -73,6 +73,9 @@ about 27 minutes.
 | `test_build_context.py` | build, raze, referenced blocks, splits, paint, tree option, displaced vanilla keys, the 200 node limit |
 | `test_builder_input.py` | the cube builder with real mouse input: place, remove, a line with Ctrl and a drag, rotated blocks, paint one block, repaint the grid |
 | `test_symmetry.py` | the cube builder with symmetry: one, two and three planes, even and odd, on the station and a small grid plate; a block on a plane, taken mirror cells, mirrored variants and orientations, single and area removal, lines and areas, paint, a later change to one copy |
+| `test_symmetry_warnings.py` | the red warnings after a symmetry edit: quiet when every copy was placed, painted and removed, for a block on a plane and for a mirrored variant; a taken mirror cell, a copy that is not there to paint or remove, and a removal that splits the grid warn once each; no warning without symmetry |
+| `test_symmetry_warnings_off.py` | the same taken cell and split with both warning options off: quiet |
+| `test_edit_guards.py` | the two checks before an edit, both on: edits that pass go through; a taken mirror cell stops a placement, a missing copy stops a paint and a removal, nothing changes; the split question keeps the bridge on No and removes it on Yes, with and without symmetry, no warning after it |
 | `test_grid_ops.py` | paste, delete, Ctrl-Delete, Ctrl-X, paste into a grid, new grid from one block |
 | `test_grid_store.py` | retention, the budget question (Yes, No, Escape), the grid history dialog |
 | `test_store_policy.py` | "always raise" for oversized backups, the dialog's Paste, Delete and Close buttons |

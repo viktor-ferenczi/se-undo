@@ -2,7 +2,8 @@
 the client as its administrator and creative tools switched on.
 
 A test file sets COMPANION = False for a server without the Undo companion,
-SERVER_UNDO_CONFIG to change options of the companion, and
+SERVER_UNDO_CONFIG to change options of the companion, CLIENT_UNDO_CONFIG those
+of the clients' plugin, and
 WORLD_SETTINGS to change session settings of the world by element name, and
 EXTRA_GRIDS to add grids to it (rig.prepare_world). The
 second client, without creative tools, joins only for the tests that ask for game2.
@@ -23,12 +24,17 @@ from harness import Game, wait_until
 
 ATTACH = os.environ.get("UNDO_ATTACH") == "1"
 KEEP = os.environ.get("UNDO_KEEP") == "1"
+CLIENT_DEFAULTS = dict(ds_rig.UNDO_CONFIG)
 
 
 @pytest.fixture(scope="module")
 def server(request):
     companion = getattr(request.module, "COMPANION", True)
     ds_rig.EXTRA_PLUGINS = getattr(request.module, "PLUGINS", ())
+    ds_rig.UNDO_CONFIG = {
+        **CLIENT_DEFAULTS,
+        **getattr(request.module, "CLIENT_UNDO_CONFIG", {}),
+    }
     if ATTACH and ds_rig.server_pid():
         yield companion
         return
